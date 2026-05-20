@@ -18,6 +18,17 @@ X_FRAME_OPTIONS = "DENY"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Pour une demo PythonAnywhere, SQLite peut remplacer MySQL afin d'economiser
+# le quota disque et simplifier l'installation. MySQL reste le comportement
+# par defaut des que DJANGO_DB_ENGINE n'est pas "sqlite".
+if os.environ.get("DJANGO_DB_ENGINE", "mysql").lower() == "sqlite":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.environ.get("SQLITE_PATH", str(BASE_DIR / "db.sqlite3")),
+        }
+    }
+
 # Autorise un deploiement de demonstration sans serveur de licence.
 # En production commerciale, mettre LICENSE_BYPASS=0 et configurer LICENSE_*.
 LICENSE_BYPASS = os.environ.get("LICENSE_BYPASS", "0") == "1"
