@@ -79,6 +79,8 @@ class Command(BaseCommand):
                             help="Supprime les groupes existants avant de les recréer.")
         parser.add_argument("--with-sample", action="store_true",
                             help="Charge aussi le jeu de données de test (load_sample_data).")
+        parser.add_argument("--compute", action="store_true",
+                            help="Recalcule les Outputs après le chargement des données.")
 
     def handle(self, *args, **opts):
         self.stdout.write(self.style.MIGRATE_HEADING("Bootstrap MoranjEALM"))
@@ -143,6 +145,117 @@ class Command(BaseCommand):
         else:
             self.stdout.write("  Paramètre singleton déjà initialisé (skip).")
 
+        # ---- Hypothèses standards gouvernées ----
+        from apps.governance.services import ensure_standard_assumptions
+
+        ensure_standard_assumptions()
+        self.stdout.write("  Hypothèses standards initialisées / vérifiées.")
+
+        # ---- Référentiels de base ----
+        from apps.mapping.models import (
+            CollateralType,
+            Currency,
+            CustomerSegment,
+            Entity,
+            FxRate,
+            RepricingBucket,
+        )
+        from apps.reporting.models import ReportTemplate
+        from apps.reporting.pptx_export import DEFAULT_SECTIONS
+
+        xaf, _ = Currency.objects.update_or_create(
+            code="XAF",
+            defaults={"label": "Franc CFA BEAC", "is_base": True, "decimals": 0, "is_active": True},
+        )
+        for code, label, rate, decimals in [
+            ("EUR", "Euro", 655.957, 2),
+            ("USD", "Dollar américain", 610.0, 2),
+        ]:
+            currency, _ = Currency.objects.update_or_create(
+                code=code,
+                defaults={"label": label, "is_base": False, "decimals": decimals, "is_active": True},
+            )
+            FxRate.objects.get_or_create(
+                currency=currency,
+                date=(param.dateArrete or timezone.now()).date(),
+                defaults={"rate": rate, "source": "bootstrap"},
+            )
+        FxRate.objects.get_or_create(
+            currency=xaf,
+            date=(param.dateArrete or timezone.now()).date(),
+            defaults={"rate": 1.0, "source": "bootstrap"},
+        )
+        Entity.objects.update_or_create(
+            code="BANK",
+            defaults={
+                "label": param.bankName or "Banque cliente",
+                "country": "CM",
+                "base_currency": xaf,
+                "consolidation": "full",
+                "is_active": True,
+            },
+        )
+        for code, label, days_min, days_max, midpoint, order in [
+            ("TODAY", "Aujourd'hui", 0, 1, 1, 1),
+            ("D7", "+ 7 jours", 2, 7, 4, 2),
+            ("D15", "+ 15 jours", 8, 15, 11, 3),
+            ("M1", "+ 1 mois", 16, 30, 23, 4),
+            ("M2", "+ 2 mois", 31, 60, 45, 5),
+            ("M3", "+ 3 mois", 61, 90, 75, 6),
+            ("M6", "+ 6 mois", 91, 180, 135, 7),
+            ("Y1", "+ 1 an", 181, 365, 273, 8),
+            ("Y3", "+ 3 ans", 366, 1095, 730, 9),
+            ("Y5", "+ 5 ans", 1096, 1825, 1460, 10),
+            ("GT5", "Au-delà", 1826, None, 2555, 11),
+        ]:
+            RepricingBucket.objects.update_or_create(
+                code=code,
+                defaults={
+                    "label": label,
+                    "days_min": days_min,
+                    "days_max": days_max,
+                    "midpoint_days": midpoint,
+                    "order": order,
+                },
+            )
+        for code, label, flags, risk_weight in [
+            ("RETAIL", "Particuliers", {"is_retail": True}, 0.10),
+            ("CORPORATE", "Entreprises", {"is_corporate": True}, 0.40),
+            ("FINANCIAL", "Institutions financières", {"is_financial": True}, 1.00),
+            ("PUBLIC", "Secteur public", {}, 0.20),
+        ]:
+            CustomerSegment.objects.update_or_create(
+                code=code,
+                defaults={"label": label, "risk_weight": risk_weight, "is_active": True, **flags},
+            )
+        for code, label, liquidity_level, haircut in [
+            ("CASH", "Caisse et banque centrale", "level1", 0.0),
+            ("SOVEREIGN", "Titres souverains éligibles", "level1", 0.0),
+            ("OPCVM", "Parts OPCVM/SICAV éligibles", "level2a", 15.0),
+            ("OTHER", "Autres sûretés", "non_hqla", 100.0),
+        ]:
+            CollateralType.objects.update_or_create(
+                code=code,
+                defaults={
+                    "label": label,
+                    "eligible_basel": liquidity_level != "non_hqla",
+                    "haircut_pct": haircut,
+                    "liquidity_level": liquidity_level,
+                    "is_active": True,
+                },
+            )
+        ReportTemplate.objects.update_or_create(
+            code="ALCO_STANDARD",
+            defaults={
+                "label": "Rapport ALCO standard",
+                "scope": "alco",
+                "description": "Template standard généré au bootstrap.",
+                "sections": DEFAULT_SECTIONS,
+                "is_active": True,
+            },
+        )
+        self.stdout.write("  Référentiels standards initialisés / vérifiés.")
+
         # ---- Super-utilisateur (optionnel) ----
         if opts["admin_username"] and opts["admin_password"]:
             admin_group = GroupeUser.objects.get(nom="Administrateurs")
@@ -176,5 +289,14 @@ class Command(BaseCommand):
             from django.core.management import call_command
             self.stdout.write("")
             call_command("load_sample_data", reset=True)
+
+        if opts["compute"]:
+            from apps.engine.output_generators import regenerate_outputs
+            self.stdout.write("")
+            self.stdout.write("Recalcul des outputs ALM…")
+            summary = regenerate_outputs()
+            self.stdout.write(self.style.SUCCESS(
+                f"  {summary['total']} ligne(s) Output générée(s)."
+            ))
 
         self.stdout.write(self.style.SUCCESS("Bootstrap terminé."))
