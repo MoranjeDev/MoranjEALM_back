@@ -7,6 +7,11 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+
+def csv_env(name: str, default: str = "") -> list[str]:
+    """Read a comma-separated environment variable as a clean list."""
+    return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
+
 # ============================================================================
 # Chemins
 # ============================================================================
@@ -20,7 +25,7 @@ SECRET_KEY = os.environ.get(
     "insecure-dev-only-change-in-production-please-please-please",
 )
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
+ALLOWED_HOSTS = csv_env("DJANGO_ALLOWED_HOSTS", "*")
 
 # ============================================================================
 # Applications
@@ -199,10 +204,11 @@ SIMPLE_JWT = {
 # ============================================================================
 # CORS
 # ============================================================================
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS = csv_env(
+    "DJANGO_CORS_ALLOWED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173",
+)
+CSRF_TRUSTED_ORIGINS = csv_env("DJANGO_CSRF_TRUSTED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = True
 
 # ============================================================================
