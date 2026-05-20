@@ -1,0 +1,335 @@
+"""
+Jeu de données de test pour MoranjEALM.
+
+Conçu pour produire des résultats visibles et cohérents dans :
+- Synthèses (3 scénarios)
+- LCR
+- Gap de taux
+- NII / EVE Sensitivity
+- Concentration
+
+Toutes les valeurs sont en FCFA. Date de référence : 8 mai 2026.
+Volumétrie : ~120 milliards FCFA d'actifs et ~120 milliards FCFA de passifs,
+correspondant à une banque CEMAC de taille moyenne.
+
+Pour charger ces données dans la base :
+    python manage.py load_sample_data
+ou en option du bootstrap :
+    python manage.py bootstrap_alm --with-sample
+"""
+from datetime import datetime, timedelta
+
+REF = datetime(2026, 5, 8)
+
+
+def _d(days: int) -> datetime:
+    """Retourne une date relative à la date de référence."""
+    return REF + timedelta(days=days)
+
+
+# ===========================================================================
+# ACTIFS
+# ===========================================================================
+
+CREDIT = [
+    # code_agence, num_dossier, raci, avenant, date_mep, date_prem_echeance,
+    # date_deu_echeance, nbre_echeance, taux_interet, capital_restant,
+    # montant_debloque, frequence
+    {"code_agence": "00100", "num_dossier": "C00001", "raci": "A1B2C3", "avenant": 0,
+     "date_mep": _d(-365), "date_prem_echeance": _d(-330), "date_deu_echeance": _d(900),
+     "nbre_echeance": 60, "taux_interet": 8.50,
+     "capital_restant": 8_500_000_000, "montant_debloque": 10_000_000_000, "frequence": "MENSUEL"},
+    {"code_agence": "00100", "num_dossier": "C00002", "raci": "B2C3D4", "avenant": 0,
+     "date_mep": _d(-180), "date_prem_echeance": _d(-150), "date_deu_echeance": _d(1095),
+     "nbre_echeance": 36, "taux_interet": 7.25,
+     "capital_restant": 4_200_000_000, "montant_debloque": 5_000_000_000, "frequence": "MENSUEL"},
+    {"code_agence": "00200", "num_dossier": "C00003", "raci": "C3D4E5", "avenant": 0,
+     "date_mep": _d(-720), "date_prem_echeance": _d(-690), "date_deu_echeance": _d(450),
+     "nbre_echeance": 24, "taux_interet": 9.00,
+     "capital_restant": 1_500_000_000, "montant_debloque": 3_000_000_000, "frequence": "TRIMESTRIEL"},
+    {"code_agence": "00200", "num_dossier": "C00004", "raci": "D4E5F6", "avenant": 0,
+     "date_mep": _d(-90), "date_prem_echeance": _d(-60), "date_deu_echeance": _d(1500),
+     "nbre_echeance": 60, "taux_interet": 8.00,
+     "capital_restant": 12_000_000_000, "montant_debloque": 12_000_000_000, "frequence": "MENSUEL"},
+    {"code_agence": "00300", "num_dossier": "C00005", "raci": "E5F6G7", "avenant": 0,
+     "date_mep": _d(-540), "date_prem_echeance": _d(-510), "date_deu_echeance": _d(180),
+     "nbre_echeance": 12, "taux_interet": 6.50,
+     "capital_restant": 800_000_000, "montant_debloque": 2_000_000_000, "frequence": "MENSUEL"},
+    {"code_agence": "00100", "num_dossier": "C00006", "raci": "F6G7H8", "avenant": 0,
+     "date_mep": _d(-30), "date_prem_echeance": _d(-1), "date_deu_echeance": _d(720),
+     "nbre_echeance": 24, "taux_interet": 7.50,
+     "capital_restant": 5_000_000_000, "montant_debloque": 5_000_000_000, "frequence": "TRIMESTRIEL"},
+    {"code_agence": "00400", "num_dossier": "C00007", "raci": "G7H8I9", "avenant": 0,
+     "date_mep": _d(-1095), "date_prem_echeance": _d(-1065), "date_deu_echeance": _d(2190),
+     "nbre_echeance": 60, "taux_interet": 10.00,
+     "capital_restant": 18_000_000_000, "montant_debloque": 25_000_000_000, "frequence": "MENSUEL"},
+]
+
+TERME = [
+    {"ref_cat": "T00001", "racine": "PT0001", "compte_client": "37100000001",
+     "compte_cat": "37200000001", "date_mep": _d(-30), "maturite": _d(60),
+     "montant": 2_000_000_000, "periodicite": "MENSUEL", "taux_int": 7.0},
+    {"ref_cat": "T00002", "racine": "PT0002", "compte_client": "37100000002",
+     "compte_cat": "37200000002", "date_mep": _d(-15), "maturite": _d(165),
+     "montant": 5_000_000_000, "periodicite": "TRIMESTRIEL", "taux_int": 7.5},
+    {"ref_cat": "T00003", "racine": "PT0003", "compte_client": "37100000003",
+     "compte_cat": "37200000003", "date_mep": _d(-180), "maturite": _d(545),
+     "montant": 3_500_000_000, "periodicite": "SEMESTRIEL", "taux_int": 8.0},
+    {"ref_cat": "T00004", "racine": "PT0004", "compte_client": "37100000004",
+     "compte_cat": "37200000004", "date_mep": _d(-365), "maturite": _d(365),
+     "montant": 1_500_000_000, "periodicite": "ANNUEL", "taux_int": 6.5},
+]
+
+DECOUVERT = [
+    {"agence": "00100", "naut": "D00001", "code_client": "C00100001",
+     "montant": 500_000_000, "data_mise_place": _d(-30), "taux_auto": 12.0,
+     "plafond": 800_000_000, "taux_dela_plafond": 18.0, "duree": 90,
+     "date_fin": _d(60)},
+    {"agence": "00200", "naut": "D00002", "code_client": "C00200001",
+     "montant": 1_200_000_000, "data_mise_place": _d(-60), "taux_auto": 11.5,
+     "plafond": 1_500_000_000, "taux_dela_plafond": 17.5, "duree": 180,
+     "date_fin": _d(120)},
+    {"agence": "00300", "naut": "D00003", "code_client": "C00300001",
+     "montant": 300_000_000, "data_mise_place": _d(-15), "taux_auto": 12.5,
+     "plafond": 500_000_000, "taux_dela_plafond": 18.0, "duree": 60,
+     "date_fin": _d(45)},
+    {"agence": "00100", "naut": "D00004", "code_client": "C00100002",
+     "montant": 1_000_000_000, "data_mise_place": _d(-90), "taux_auto": 12.0,
+     "plafond": 1_200_000_000, "taux_dela_plafond": 18.5, "duree": 180,
+     "date_fin": _d(90)},
+]
+
+BTA = [
+    {"nom_client": "État du Cameroun", "description": "BTA 13 sem.",
+     "date_valeur": _d(-30), "solde": 5_000_000_000, "maturite": _d(60),
+     "per_paiement": "IN_FINE", "taux_int": 5.50},
+    {"nom_client": "État du Cameroun", "description": "BTA 26 sem.",
+     "date_valeur": _d(-90), "solde": 4_000_000_000, "maturite": _d(90),
+     "per_paiement": "IN_FINE", "taux_int": 5.75},
+    {"nom_client": "État du Tchad", "description": "BTA 52 sem.",
+     "date_valeur": _d(-180), "solde": 3_000_000_000, "maturite": _d(180),
+     "per_paiement": "IN_FINE", "taux_int": 6.00},
+    {"nom_client": "État du Gabon", "description": "BTA 26 sem.",
+     "date_valeur": _d(-30), "solde": 3_000_000_000, "maturite": _d(150),
+     "per_paiement": "IN_FINE", "taux_int": 5.85},
+]
+
+OTA = [
+    {"code_emission": "OTA-CMR-2024-01", "description": "OTA 3 ans Cameroun",
+     "date_valeur": _d(-365), "solde": 4_000_000_000, "maturite": _d(730),
+     "taux_int": 6.50},
+    {"code_emission": "OTA-TCD-2025-01", "description": "OTA 5 ans Tchad",
+     "date_valeur": _d(-180), "solde": 2_500_000_000, "maturite": _d(1640),
+     "taux_int": 7.00},
+    {"code_emission": "OTA-GAB-2024-02", "description": "OTA 5 ans Gabon",
+     "date_valeur": _d(-540), "solde": 1_500_000_000, "maturite": _d(1280),
+     "taux_int": 6.75},
+]
+
+EMPRUNT_OBL = [
+    {"devise": "XAF", "nom_client": "ECOBANK Bond 2027", "code_emission": "ECO-2027",
+     "description": "Obligation senior", "date_valeur": _d(-365),
+     "solde": 3_000_000_000, "maturite": _d(548), "taux_int": 7.50},
+    {"devise": "EUR", "nom_client": "Eurobond CMR 2030", "code_emission": "CMR-EUR-2030",
+     "description": "Eurobond souverain", "date_valeur": _d(-1095),
+     "solde": 2_000_000_000, "maturite": _d(1825), "taux_int": 5.50},
+]
+
+TAB_AMORT = [
+    # Échéancier détaillé pour quelques crédits
+    {"code_agence": "00100", "num_dossier": "C00001", "avenant": 0, "devise": "XAF",
+     "num_echeance": 13, "date_echeance": _d(30), "amort_calcul": 141_666_667,
+     "montant_echeance": 200_000_000, "statut_echeance": "ATTENDUE"},
+    {"code_agence": "00100", "num_dossier": "C00001", "avenant": 0, "devise": "XAF",
+     "num_echeance": 14, "date_echeance": _d(60), "amort_calcul": 141_666_667,
+     "montant_echeance": 198_500_000, "statut_echeance": "ATTENDUE"},
+    {"code_agence": "00100", "num_dossier": "C00002", "avenant": 0, "devise": "XAF",
+     "num_echeance": 7, "date_echeance": _d(15), "amort_calcul": 116_666_667,
+     "montant_echeance": 145_000_000, "statut_echeance": "ATTENDUE"},
+]
+
+PRET_COR = [
+    {"code_agence": "01000", "num_dossier": "PC0001", "racine": "BICEC0", "avenant": 0,
+     "date_mep": _d(-180), "date_prem_echeance": _d(-150),
+     "date_dern_echeance": _d(540), "nbre_echeance": 24,
+     "montant": 4_000_000_000, "taux_interet": 6.50,
+     "capital_restant": 3_500_000_000, "periodicite": "MENSUEL"},
+    {"code_agence": "01000", "num_dossier": "PC0002", "racine": "BICIA0", "avenant": 0,
+     "date_mep": _d(-90), "date_prem_echeance": _d(-60),
+     "date_dern_echeance": _d(900), "nbre_echeance": 36,
+     "montant": 2_500_000_000, "taux_interet": 7.00,
+     "capital_restant": 2_400_000_000, "periodicite": "TRIMESTRIEL"},
+]
+
+PRET_INTER_BANC = [
+    {"racine": "INTBL0", "devise": "XAF", "contrepartie": "Société Générale Cameroun",
+     "solde": 5_000_000_000, "date_mep": _d(-1), "maturite": _d(7),
+     "per_paiement": "IN_FINE", "taux_int": 4.50},
+    {"racine": "INTBL1", "devise": "XAF", "contrepartie": "BICEC",
+     "solde": 3_000_000_000, "date_mep": _d(-1), "maturite": _d(30),
+     "per_paiement": "IN_FINE", "taux_int": 4.75},
+    {"racine": "INTBL2", "devise": "XAF", "contrepartie": "Afriland First Bank",
+     "solde": 2_000_000_000, "date_mep": _d(-3), "maturite": _d(14),
+     "per_paiement": "IN_FINE", "taux_int": 4.60},
+]
+
+BEAC = [
+    # Compte courant à la BEAC : un seul cumul à la date d'arrêté
+    {"date": REF, "cumul": 4_500_000_000, "tableauLog": None, "tableauVarLog": None},
+]
+
+PRET_TITRE = [
+    {"contrepartie": "BMCE Bank", "type": "PENSION_TITRES",
+     "montant": 1_500_000_000, "date_mise": _d(-15), "date_echeance": _d(15),
+     "duree": 30, "taux_integer": 5.0,
+     "interet": 12_500_000, "tva": 2_375_000,
+     "montant_rembourser": 1_514_875_000},
+]
+
+BILLET = [
+    # Billets et pièces : un seul snapshot
+    {"date": REF, "solde": 2_000_000_000},
+]
+
+
+# ===========================================================================
+# PASSIFS
+# ===========================================================================
+
+CPTE_CORR = [
+    # Comptes correspondants : un seul cumul
+    {"date": REF, "cumul": 4_000_000_000, "tableauLog": None, "tableauVarLog": None},
+]
+
+DEPOT_TERME = [
+    {"reference": "DT0001", "racine": "DAT001", "compte_client": "37100100001",
+     "date_mep": _d(-90), "maturite": _d(90),
+     "montant": 8_000_000_000, "taux_interet": 5.5, "periodicite": "IN_FINE"},
+    {"reference": "DT0002", "racine": "DAT002", "compte_client": "37100100002",
+     "date_mep": _d(-30), "maturite": _d(60),
+     "montant": 5_000_000_000, "taux_interet": 5.0, "periodicite": "IN_FINE"},
+    {"reference": "DT0003", "racine": "DAT003", "compte_client": "37100100003",
+     "date_mep": _d(-180), "maturite": _d(180),
+     "montant": 6_500_000_000, "taux_interet": 5.75, "periodicite": "IN_FINE"},
+    {"reference": "DT0004", "racine": "DAT004", "compte_client": "37100100004",
+     "date_mep": _d(-365), "maturite": _d(365),
+     "montant": 9_000_000_000, "taux_interet": 6.0, "periodicite": "IN_FINE"},
+    {"reference": "DT0005", "racine": "DAT005", "compte_client": "37100100005",
+     "date_mep": _d(-15), "maturite": _d(15),
+     "montant": 3_000_000_000, "taux_interet": 4.5, "periodicite": "IN_FINE"},
+    {"reference": "DT0006", "racine": "DAT006", "compte_client": "37100100006",
+     "date_mep": _d(-540), "maturite": _d(720),
+     "montant": 4_000_000_000, "taux_interet": 6.5, "periodicite": "IN_FINE"},
+]
+
+BON_CAISSE = [
+    {"reference": "BC0001", "racine": "BDC001", "compte_client": "37200100001",
+     "date_mep": _d(-180), "maturite": _d(180),
+     "montant": 3_000_000_000, "taux": 5.5, "periodicite": "IN_FINE"},
+    {"reference": "BC0002", "racine": "BDC002", "compte_client": "37200100002",
+     "date_mep": _d(-365), "maturite": _d(365),
+     "montant": 2_500_000_000, "taux": 6.0, "periodicite": "IN_FINE"},
+    {"reference": "BC0003", "racine": "BDC003", "compte_client": "37200100003",
+     "date_mep": _d(-90), "maturite": _d(90),
+     "montant": 2_000_000_000, "taux": 5.0, "periodicite": "IN_FINE"},
+    {"reference": "BC0004", "racine": "BDC004", "compte_client": "37200100004",
+     "date_mep": _d(-540), "maturite": _d(180),
+     "montant": 500_000_000, "taux": 5.25, "periodicite": "IN_FINE"},
+]
+
+PENSION_LIVREE = [
+    {"type": "REPO", "description": "Pension titres BTA", "montant": 3_000_000_000,
+     "date_mise_place": _d(-7), "duree": 14, "echeance": _d(7),
+     "jour_echeance": 1, "taux_interet": 4.25},
+    {"type": "REPO", "description": "Pension titres OTA", "montant": 2_000_000_000,
+     "date_mise_place": _d(-3), "duree": 7, "echeance": _d(4),
+     "jour_echeance": 1, "taux_interet": 4.5},
+]
+
+EMPRUNT_INTER = [
+    {"type": "EMPRUNT_BLANC", "description": "Emp. inst. AFD",
+     "montant": 2_000_000_000, "date_mise_place": _d(-30), "duree": 90,
+     "echance": _d(60), "jour_echeance": 1, "taux_interet": 4.75},
+    {"type": "EMPRUNT_BLANC", "description": "Emp. inst. PROPARCO",
+     "montant": 1_000_000_000, "date_mise_place": _d(-60), "duree": 180,
+     "echance": _d(120), "jour_echeance": 1, "taux_interet": 5.0},
+]
+
+EMPRUNT_INTER_BANC = [
+    {"date_dern_paiement": _d(-30), "date_pro_echeance": _d(60),
+     "encours": "ACTIF", "principal": 4_000_000_000, "interet": 50_000_000,
+     "frequence_paiement": "MENSUEL", "taux": 5.0},
+    {"date_dern_paiement": _d(-15), "date_pro_echeance": _d(15),
+     "encours": "ACTIF", "principal": 2_000_000_000, "interet": 12_500_000,
+     "frequence_paiement": "MENSUEL", "taux": 5.25},
+]
+
+COMPTE_COURANT = [
+    # Comptes 371 — soldes agrégés à la date d'arrêté
+    {"date": REF, "cumul": 25_000_000_000, "tableauLog": None, "tableauVarLog": None},
+]
+
+COMPTE_CHEQUE = [
+    # Comptes 372
+    {"date": REF, "cumul": 18_000_000_000, "tableauLog": None, "tableauVarLog": None},
+]
+
+COMPTE_LIVRET = [
+    # Comptes 373
+    {"date": REF, "cumul": 12_000_000_000, "tableauLog": None, "tableauVarLog": None},
+]
+
+AVANCE_BEAC = [
+    {"montant": 1_500_000_000, "date_valeur": _d(-15), "echeance": _d(75),
+     "taux": 4.0, "interets": 15_000_000, "montant_total_rembourse": 1_515_000_000},
+    {"montant": 500_000_000, "date_valeur": _d(-30), "echeance": _d(60),
+     "taux": 4.0, "interets": 5_000_000, "montant_total_rembourse": 505_000_000},
+]
+
+EMPRUNT_TITRE = [
+    {"contrepartie": "Bank of Africa", "type": "PENSION_TITRES",
+     "montant": 1_000_000_000, "date_valeur": _d(-7), "echeance": _d(23),
+     "duree": 30, "taux": 4.5, "interet": 3_750_000, "tva": 712_500,
+     "montant_total_rembourse": 1_004_462_500},
+]
+
+
+# ===========================================================================
+# Mapping centralisé : kind -> liste de dicts
+# ===========================================================================
+SAMPLE_DATA = {
+    # Actifs
+    "credit": CREDIT,
+    "terme": TERME,
+    "decouvert": DECOUVERT,
+    "bta": BTA,
+    "ota": OTA,
+    "emprunt_obl": EMPRUNT_OBL,
+    "tab_amort": TAB_AMORT,
+    "pret_cor": PRET_COR,
+    "pret_inter_banc": PRET_INTER_BANC,
+    "beac": BEAC,
+    "pret_titre": PRET_TITRE,
+    "billet": BILLET,
+    # Passifs
+    "cpte_corr": CPTE_CORR,
+    "depot_terme": DEPOT_TERME,
+    "bon_caisse": BON_CAISSE,
+    "pension_livree": PENSION_LIVREE,
+    "emprunt_inter": EMPRUNT_INTER,
+    "emprunt_inter_banc": EMPRUNT_INTER_BANC,
+    "compte_courant": COMPTE_COURANT,
+    "compte_cheque": COMPTE_CHEQUE,
+    "compte_livret": COMPTE_LIVRET,
+    "avance_beac": AVANCE_BEAC,
+    "emprunt_titre": EMPRUNT_TITRE,
+}
+
+
+def get_sample_for(kind: str) -> list[dict]:
+    """Retourne la liste de dicts d'exemple pour un type d'input."""
+    return SAMPLE_DATA.get(kind, [])
+
+
+def total_records() -> int:
+    return sum(len(v) for v in SAMPLE_DATA.values())

@@ -1,0 +1,98 @@
+# ============================================================================
+# Production Dockerfile — backend Django compilé en binaire natif via Nuitka
+#
+# Stage 1 (builder)  : compile le code Python en exécutable natif unique.
+# Stage 2 (runtime)  : image distroless contenant uniquement le binaire et ses
+#                      dépendances système. Aucune source Python livrée au client.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Stage 1 : BUILD
+# ----------------------------------------------------------------------------
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Outils de compilation et dépendances système
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    patchelf \
+    pkg-config \
+    libldap2-dev \
+    libsasl2-dev \
+    libssl-dev \
+    default-libmysqlclient-dev \
+    libffi-dev \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libcairo2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Installation des dépendances Python
+COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt && \
+    pip install nuitka==2.4.7 cython==3.0.10 pyarmor==9.0.4
+
+# Code source
+COPY . /build/
+
+# Compilation Cython des modules sensibles
+RUN python setup_cython.py build_ext --inplace || true
+
+# Compilation Nuitka du backend Django
+# - --standalone : empaquette toutes les dépendances
+# - --onefile désactivé ici (mauvaise compatibilité Django) ;
+#   on utilise --standalone qui produit un dossier complet.
+RUN python -m nuitka \
+        --standalone \
+        --no-pyi-file \
+        --remove-output \
+        --lto=yes \
+        --assume-yes-for-downloads \
+        --output-dir=/build/dist \
+        --include-package=django \
+        --include-package=rest_framework \
+        --include-package=apps \
+        --include-package=alm \
+        --include-package=numpy \
+        --include-package=pandas \
+        --include-data-dir=alm/settings=alm/settings \
+        --include-data-dir=apps=apps \
+        --noinclude-pytest-mode=nofollow \
+        --noinclude-IPython-mode=nofollow \
+        manage.py
+
+# Application de PyArmor sur les modules de bootstrap restants
+# (PyArmor Pro recommandé en production — exemple par défaut ci-dessous).
+# RUN pyarmor gen --recursive --restrict-mode 4 --advanced 2 -O /build/dist/protected /build/alm
+
+# ----------------------------------------------------------------------------
+# Stage 2 : RUNTIME (distroless)
+# ----------------------------------------------------------------------------
+FROM gcr.io/distroless/cc-debian12 AS runtime
+
+# Copie du binaire et de ses dépendances
+COPY --from=builder /build/dist/manage.dist /app
+
+# Bibliothèques système nécessaires (MySQL/MariaDB, LDAP, SSL)
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libldap*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libsasl2*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libmariadb*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libmysqlclient*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libpango*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libcairo*.so* /usr/lib/x86_64-linux-gnu/
+
+WORKDIR /app
+
+# Le client recevra cette image — elle ne contient AUCUNE source Python.
+EXPOSE 8000
+
+# Notez l'absence de shell : la commande appelle directement le binaire.
+ENTRYPOINT ["/app/manage.bin", "runserver", "0.0.0.0:8000"]
