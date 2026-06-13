@@ -25,6 +25,7 @@ from typing import Iterable
 from weasyprint import HTML, CSS
 
 from apps.engine.lcr import compute_lcr_all
+from apps.engine.scenario_analysis import compute_scenario_analysis
 from apps.engine.synthesis import compute_synthesis
 from apps.parameters.models import Parameter
 
@@ -113,6 +114,16 @@ def _client_brand_html(param: Parameter) -> str:
     return f'<div class="client-brand">{logo}{name}</div>'
 
 
+def _public_user_label(user_label: str) -> str:
+    """Nettoie le libellé utilisateur affiché dans les PDF client."""
+    cleaned = (user_label or "").replace("MoranjEALM", "").strip(" -—")
+    return cleaned or "Utilisateur"
+
+
+def _safe_div(value: float, divisor: float) -> float:
+    return (value / divisor) if divisor else 0.0
+
+
 def _fmt(n: float) -> str:
     if n == 0:
         return "—"
@@ -126,6 +137,312 @@ def _short_fmt(n: float) -> str:
     if abs(n) >= 1_000:
         return f"{n / 1_000:.1f}k".replace(".", ",")
     return f"{n:.0f}"
+
+
+def _build_balance_sheet_html() -> tuple[str, dict[str, float]]:
+    """Construit la section bilan officiel LCY/FCY/consolidé pour le PDF ALCO."""
+    try:
+        from apps.multicurrency.balance_sheet_currency import compute_balance_sheet_by_currency
+        data = compute_balance_sheet_by_currency()
+    except Exception as exc:  # noqa: BLE001
+        return (
+            f'''
+  <section class="section">
+    <h2 class="section-title">Bilan officiel</h2>
+    <div class="notice error">Impossible de charger le bilan officiel : {html.escape(str(exc))}</div>
+  </section>
+''',
+            {},
+        )
+
+    if data.get("error"):
+        return (
+            f'''
+  <section class="section">
+    <h2 class="section-title">Bilan officiel</h2>
+    <div class="notice">Données non disponibles : {html.escape(str(data["error"]))}</div>
+  </section>
+''',
+            {},
+        )
+
+    consolidated = data.get("consolidated", {})
+    lcy = data.get("lcy_only", {})
+    fcy = data.get("fcy_total", {})
+    devises = data.get("devises", [])
+
+    total_actif = float(consolidated.get("total_actif_lcy", 0) or 0)
+    total_passif = float(consolidated.get("total_passif_lcy", 0) or 0)
+    gap = float(consolidated.get("gap_lcy", 0) or 0)
+    fcy_actif = float(fcy.get("actif_lcy_equivalent", 0) or 0)
+    fcy_passif = float(fcy.get("passif_lcy_equivalent", 0) or 0)
+    fcy_gap = float(fcy.get("gap_lcy", 0) or 0)
+    lcy_actif = float(lcy.get("actif", 0) or 0)
+    lcy_passif = float(lcy.get("passif", 0) or 0)
+    fcy_share = _safe_div(fcy_actif + fcy_passif, total_actif + total_passif) * 100
+
+    rows = []
+    for row in devises:
+        row_gap = float(row.get("gap_lcy", 0) or 0)
+        lcy_tag = " <span class='tag'>LCY</span>" if row.get("is_base") else ""
+        rows.append(f'''
+        <tr>
+          <td><b>{html.escape(str(row.get("devise", "")))}</b>{lcy_tag}</td>
+          <td>{_fmt(float(row.get("actif_lcy_equivalent", 0) or 0) / 1e6)}</td>
+          <td>{_fmt(float(row.get("passif_lcy_equivalent", 0) or 0) / 1e6)}</td>
+          <td class="{'neg' if row_gap < 0 else 'pos'}">{_fmt(row_gap / 1e6)}</td>
+          <td>{_fmt(float(row.get("actif_fcy", 0) or 0))}</td>
+          <td>{_fmt(float(row.get("passif_fcy", 0) or 0))}</td>
+          <td>{_fmt(float(row.get("fx_rate", 1) or 1))}</td>
+        </tr>''')
+
+    html_section = f'''
+  <section class="section">
+    <h2 class="section-title">Bilan officiel LCY / FCY / consolidé</h2>
+    <div class="section-subtitle">Source de contrôle : lignes de bilan GL importées — montants consolidés en millions FCFA.</div>
+    <div class="balance-kpis">
+      <div><span>Total actif consolidé</span><b>{_short_fmt(total_actif / 1e6)}</b><small>M FCFA</small></div>
+      <div><span>Total passif consolidé</span><b>{_short_fmt(total_passif / 1e6)}</b><small>M FCFA</small></div>
+      <div><span>Gap bilan</span><b class="{'neg' if gap < 0 else 'pos'}">{_short_fmt(gap / 1e6)}</b><small>Actif - passif</small></div>
+      <div><span>Part FCY</span><b>{_fmt(fcy_share)} %</b><small>Actif + passif</small></div>
+    </div>
+    <div class="balance-split">
+      <div>
+        <h3>Lecture LCY</h3>
+        <p>Actif : <b>{_fmt(lcy_actif / 1e6)}</b> M FCFA</p>
+        <p>Passif : <b>{_fmt(lcy_passif / 1e6)}</b> M FCFA</p>
+        <p>Gap : <b class="{'neg' if (lcy_actif - lcy_passif) < 0 else 'pos'}">{_fmt((lcy_actif - lcy_passif) / 1e6)}</b> M FCFA</p>
+      </div>
+      <div>
+        <h3>Lecture FCY convertie</h3>
+        <p>Actif FCY : <b>{_fmt(fcy_actif / 1e6)}</b> M FCFA</p>
+        <p>Passif FCY : <b>{_fmt(fcy_passif / 1e6)}</b> M FCFA</p>
+        <p>Gap FCY : <b class="{'neg' if fcy_gap < 0 else 'pos'}">{_fmt(fcy_gap / 1e6)}</b> M FCFA</p>
+      </div>
+    </div>
+    <table class="balance-table">
+      <thead>
+        <tr>
+          <th>Devise</th>
+          <th>Actif éq. LCY</th>
+          <th>Passif éq. LCY</th>
+          <th>Gap LCY</th>
+          <th>Actif FCY</th>
+          <th>Passif FCY</th>
+          <th>FX</th>
+        </tr>
+      </thead>
+      <tbody>{''.join(rows)}</tbody>
+    </table>
+  </section>
+'''
+    return html_section, {
+        "total_actif_lcy": total_actif,
+        "total_passif_lcy": total_passif,
+        "gap_lcy": gap,
+        "fcy_share": fcy_share,
+    }
+
+
+def _build_rate_basis_html() -> str:
+    """Construit une section ALCO courte sur le basis risk."""
+    try:
+        from apps.engine.rate_gap import compute_rate_gap
+        data = compute_rate_gap()
+    except Exception as exc:  # noqa: BLE001
+        return f'''
+  <section class="section">
+    <h2 class="section-title">Gap de taux par type — Basis Risk</h2>
+    <div class="notice error">Impossible de charger le basis risk : {html.escape(str(exc))}</div>
+  </section>
+'''
+
+    alerts = data.get("basis_risk_summary") or []
+    type_rows = []
+    for bucket in (data.get("by_bucket_and_type") or {}).values():
+        for row in (bucket.get("types") or {}).values():
+            gap = float(row.get("gap", 0) or 0)
+            spread = float(row.get("basis_risk", 0) or 0)
+            type_rows.append(f'''
+        <tr>
+          <td>{html.escape(str(bucket.get("label") or "-"))}</td>
+          <td>{html.escape(str(row.get("label") or "-"))}</td>
+          <td>{_fmt(float(row.get("actif", 0) or 0) / 1e6)}</td>
+          <td>{_fmt(float(row.get("passif", 0) or 0) / 1e6)}</td>
+          <td class="{'neg' if gap < 0 else 'pos'}">{_fmt(gap / 1e6)}</td>
+          <td>{_fmt(float(row.get("taux_actif", 0) or 0))} %</td>
+          <td>{_fmt(float(row.get("taux_passif", 0) or 0))} %</td>
+          <td class="{'neg' if spread < 0 else 'pos'}">{_fmt(spread)} pts</td>
+        </tr>''')
+
+    alert_html = (
+        ''.join(
+            f'''
+        <div class="risk-alert {'high' if str(item.get("severity")) == "HIGH" else "medium"}">
+          <b>{html.escape(str(item.get("label") or "-"))}</b>
+          <span>{_fmt(float(item.get("max_basis_spread", 0) or 0))} pts — {html.escape(", ".join(item.get("types_present") or []))}</span>
+        </div>'''
+            for item in alerts
+        )
+        if alerts
+        else '<div class="notice">Aucun basis risk significatif détecté sur les buckets alimentés.</div>'
+    )
+
+    return f'''
+  <section class="section">
+    <h2 class="section-title">Gap de taux par type — Basis Risk</h2>
+    <div class="section-subtitle">Lecture par base de taux : fixe, variable, administré, indexé ou révisable.</div>
+    <div class="risk-alerts">{alert_html}</div>
+    <table class="risk-table">
+      <thead>
+        <tr>
+          <th>Bucket</th><th>Type de taux</th><th>Actif</th><th>Passif</th><th>Gap</th><th>Taux actif</th><th>Taux passif</th><th>Spread</th>
+        </tr>
+      </thead>
+      <tbody>{''.join(type_rows) if type_rows else '<tr><td colspan="8">Aucune donnée sensible aux taux.</td></tr>'}</tbody>
+    </table>
+  </section>
+'''
+
+
+def _build_eve_irrbb_html() -> str:
+    """Construit une section ALCO sur les buckets sensibles EVE/IRRBB."""
+    try:
+        from apps.analytics.eve_enriched import compute_eve_enriched
+        data = compute_eve_enriched()
+    except Exception as exc:  # noqa: BLE001
+        return f'''
+  <section class="section">
+    <h2 class="section-title">EVE enrichi — IRRBB</h2>
+    <div class="notice error">Impossible de charger l'EVE enrichi : {html.escape(str(exc))}</div>
+  </section>
+'''
+
+    scenarios = [
+        (code, item.get("label") or code)
+        for code, item in (data.get("scenarios") or {}).items()
+        if code != "base"
+    ]
+    scenario_headers = ''.join(f'<th>{html.escape(str(label))}</th>' for _code, label in scenarios)
+    rows = []
+    for row in data.get("bucket_summary") or []:
+        max_delta = float(row.get("max_delta_eve", 0) or 0)
+        cells = [
+            f'<td><b>{html.escape(str(row.get("label") or "-"))}</b></td>',
+            f'<td class="{"neg" if max_delta < 0 else "pos"}">{_fmt(max_delta / 1e6)}</td>',
+        ]
+        deltas = row.get("delta_eve_by_scenario") or {}
+        for code, _label in scenarios:
+            value = float(deltas.get(code, 0) or 0)
+            cells.append(f'<td class="{"neg" if value < 0 else "pos"}">{_fmt(value / 1e6)}</td>')
+        cells.append(f'<td class="{"neg" if row.get("breach") else "pos"}">{"Breach" if row.get("breach") else "OK"}</td>')
+        rows.append(f'<tr>{"".join(cells)}</tr>')
+
+    breach_rows = []
+    for row in data.get("breaches") or []:
+        breach_rows.append(f'''
+        <tr>
+          <td>{html.escape(str(row.get("label") or "-"))}</td>
+          <td>{html.escape(str(row.get("scenario_label") or row.get("scenario") or "-"))}</td>
+          <td class="neg">{_fmt(float(row.get("delta_eve", 0) or 0) / 1e6)}</td>
+          <td class="neg">{_fmt(float(row.get("pct_tier1", 0) or 0))} %</td>
+          <td>{html.escape(str(row.get("severity") or "-"))}</td>
+        </tr>''')
+
+    breaches = (
+        f'''
+    <table class="risk-table compact">
+      <thead><tr><th>Bucket</th><th>Scénario</th><th>Delta EVE</th><th>% Tier 1</th><th>Sévérité</th></tr></thead>
+      <tbody>{''.join(breach_rows)}</tbody>
+    </table>'''
+        if breach_rows
+        else '<div class="notice">Aucun bucket ne dépasse le seuil IRRBB paramétré.</div>'
+    )
+
+    return f'''
+  <section class="section">
+    <h2 class="section-title">EVE enrichi — IRRBB</h2>
+    <div class="section-subtitle">Matrice Bucket × scénario — Montants en millions FCFA. Hors-bilan {'inclus' if data.get('off_balance_included') else 'exclu'}.</div>
+    <table class="risk-table">
+      <thead><tr><th>Bucket</th><th>Pire Δ EVE</th>{scenario_headers}<th>Statut</th></tr></thead>
+      <tbody>{''.join(rows) if rows else '<tr><td colspan="9">Aucune donnée EVE enrichie.</td></tr>'}</tbody>
+    </table>
+    <h3 class="subsection-title">Breaches IRRBB</h3>
+    {breaches}
+  </section>
+'''
+
+
+def _build_scenario_analysis_html() -> str:
+    """Construit la section Scenario Analysis du PDF ALCO."""
+    try:
+        data = compute_scenario_analysis("static")
+    except Exception as exc:  # noqa: BLE001
+        return f'''
+  <section class="section">
+    <h2 class="section-title">Scenario Analysis</h2>
+    <div class="notice error">Impossible de calculer le Scenario Analysis : {html.escape(str(exc))}</div>
+  </section>
+'''
+
+    scenarios = list(data.get("scenarios", []))
+    interest = data.get("interest_rate", {})
+    worst = min(scenarios, key=lambda row: float(row.get("min_cumulative_gap") or 0), default={})
+    worst_nii = interest.get("worst_nii") or {}
+    worst_eve = interest.get("worst_eve") or {}
+
+    kpi_html = f'''
+      <div><span>Point bas liquidité</span><b>{html.escape(_fmt(float(worst.get("min_cumulative_gap") or 0)))}</b><small>{html.escape(str(worst.get("label") or "-"))} - M FCFA</small></div>
+      <div><span>MCO défavorable</span><b>{html.escape(_fmt(float(worst.get("mco") or 0)))}</b><small>{html.escape(str(worst.get("mco_label") or "-"))}</small></div>
+      <div><span>Pire NII</span><b>{html.escape(_short_fmt(float(worst_nii.get("delta_nii") or 0) / 1e6))}</b><small>{html.escape(str(worst_nii.get("label") or "-"))} - M FCFA</small></div>
+      <div><span>Pire EVE</span><b>{html.escape(_short_fmt(float(worst_eve.get("delta_eve") or 0) / 1e6))}</b><small>{html.escape(str(worst_eve.get("label") or "-"))} - M FCFA</small></div>
+    '''
+
+    rows = []
+    for row in scenarios:
+        lcr = row.get("lcr_pct")
+        min_gap = float(row.get("min_cumulative_gap") or 0)
+        mco = float(row.get("mco") or 0)
+        delta = float(row.get("delta_min_cumulative_gap_vs_base") or 0)
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('label') or row.get('scenario') or '-'))}</td>"
+            f"<td>{html.escape(_fmt(float(lcr)) + ' %' if lcr is not None else '—')}</td>"
+            f'<td class="{"neg" if mco < 0 else "pos"}">{html.escape(_fmt(mco))}</td>'
+            f'<td class="{"neg" if min_gap < 0 else "pos"}">{html.escape(_fmt(min_gap))}</td>'
+            f'<td class="{"neg" if delta < 0 else "pos"}">{html.escape(_fmt(delta))}</td>'
+            f"<td>{html.escape(str(row.get('negative_buckets') or 0))}</td>"
+            f"<td>{'Oui' if row.get('off_balance_included') else 'Non'}</td>"
+            "</tr>"
+        )
+
+    alerts = list(interest.get("basis_risk_alerts", []))[:6]
+    alert_html = "".join(
+        f'''
+        <div class="risk-alert {'high' if str(a.get("severity")) == "HIGH" else "medium"}">
+          <b>{html.escape(str(a.get("label") or a.get("bucket_code") or "-"))}</b>
+          <span>{html.escape(_fmt(float(a.get("max_basis_spread") or 0)))} pts - {html.escape(", ".join(a.get("types_present", [])))}</span>
+        </div>'''
+        for a in alerts
+    ) or '<div class="notice">Aucune alerte de basis risk significative sur les buckets alimentés.</div>'
+
+    return f'''
+  <section class="section">
+    <h2 class="section-title">Scenario Analysis</h2>
+    <div class="section-subtitle">Comparaison ALCO des scénarios liquidité, hors-bilan, LCR, MCO, NII, EVE et basis risk.</div>
+    <div class="balance-kpis">{kpi_html}</div>
+    <table class="risk-table compact scenario-table">
+      <thead>
+        <tr>
+          <th>Scénario</th><th>LCR</th><th>MCO</th><th>Point bas cumulé</th><th>Delta vs base</th><th>Buckets nég.</th><th>Hors-bilan</th>
+        </tr>
+      </thead>
+      <tbody>{''.join(rows) if rows else '<tr><td colspan="7">Aucune donnée scenario.</td></tr>'}</tbody>
+    </table>
+    <h3 class="subsection-title">Alertes de basis risk</h3>
+    <div class="risk-alerts">{alert_html}</div>
+  </section>
+'''
 
 
 def _chart_ticks(vmin: float, vmax: float, steps: int = 4) -> list[float]:
@@ -330,6 +647,7 @@ def _build_html(scenario: str, *, user_label: str, generated_at: datetime) -> st
     if scenario not in SCENARIO_TITLES:
         raise ValueError(f"Scénario inconnu : {scenario}")
 
+    public_user_label = _public_user_label(user_label)
     synth = compute_synthesis(scenario)
     param = Parameter.get_solo()
     lcr_all = compute_lcr_all()
@@ -369,9 +687,9 @@ def _build_html(scenario: str, *, user_label: str, generated_at: datetime) -> st
     logo_watermark = f'<img class="pdf-logo-watermark" src="{logo_uri}" alt="" />' if logo_uri else ""
     client_brand = _client_brand_html(param)
     footer_text = (
-        f"{param.bankName.strip()} — exemplaire de {user_label} — {generated_at.strftime('%d/%m/%Y %H:%M')}"
+        f"{param.bankName.strip()} — exemplaire de {public_user_label} — {generated_at.strftime('%d/%m/%Y %H:%M')}"
         if param.bankName.strip()
-        else f"Exemplaire de {user_label} — {generated_at.strftime('%d/%m/%Y %H:%M')}"
+        else f"Exemplaire de {public_user_label} — {generated_at.strftime('%d/%m/%Y %H:%M')}"
     )
 
     rows_html.append(
@@ -430,6 +748,12 @@ def _build_html(scenario: str, *, user_label: str, generated_at: datetime) -> st
         if lcr_pct is not None
         else '<span class="lcr-chip">LCR : N/D</span>'
     )
+
+    balance_sheet_html, balance_sheet_summary = _build_balance_sheet_html()
+    balance_gap = balance_sheet_summary.get("gap_lcy")
+    rate_basis_html = _build_rate_basis_html()
+    eve_irrbb_html = _build_eve_irrbb_html()
+    scenario_analysis_html = _build_scenario_analysis_html()
 
     # ---- HTML final ----
     return f'''<!doctype html>
@@ -638,6 +962,161 @@ main {{ position: relative; z-index: 1; }}
   font-size: 9pt;
   margin: -6pt 0 12pt 0;
 }}
+.notice {{
+  padding: 12pt 14pt;
+  border: 0.7pt solid #DDE7F1;
+  border-radius: 7pt;
+  background: #F8FBFE;
+  color: #5F6E7A;
+  font-weight: 700;
+}}
+.notice.error {{ color: #B71C1C; background: #FFF3F3; border-color: #F2C5C5; }}
+.balance-kpis {{
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  border-spacing: 8pt 0;
+  margin: 8pt -8pt 12pt;
+}}
+.balance-kpis div {{
+  display: table-cell;
+  padding: 10pt 11pt;
+  border: 0.7pt solid #DDE7F1;
+  border-radius: 8pt;
+  background: #FFFFFF;
+}}
+.balance-kpis span {{
+  display: block;
+  color: #5D6B7D;
+  font-size: 7.5pt;
+  font-weight: 900;
+  text-transform: uppercase;
+}}
+.balance-kpis b {{
+  display: block;
+  margin-top: 5pt;
+  color: #002E5F;
+  font-size: 15pt;
+  line-height: 1;
+}}
+.balance-kpis small {{
+  display: block;
+  margin-top: 4pt;
+  color: #748094;
+  font-size: 7.5pt;
+}}
+.balance-split {{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10pt;
+  margin-bottom: 11pt;
+}}
+.balance-split div {{
+  padding: 9pt 11pt;
+  border: 0.7pt solid rgba(0,46,95,0.14);
+  border-radius: 7pt;
+  background: rgba(248,251,254,0.80);
+}}
+.balance-split h3 {{
+  margin: 0 0 6pt;
+  color: #002E5F;
+  font-size: 10.5pt;
+  font-weight: 850;
+}}
+.balance-split p {{
+  margin: 3pt 0;
+  color: #3E4C5D;
+  font-size: 9.3pt;
+}}
+table.balance-table {{
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 8.8pt;
+}}
+table.balance-table th {{
+  padding: 6pt 7pt;
+  background: #EAF1F8;
+  color: #002E5F;
+  border: 0.5pt solid #D6E2EE;
+  font-weight: 850;
+  text-align: right;
+}}
+table.balance-table th:first-child {{ text-align: left; }}
+table.balance-table td {{
+  padding: 5pt 7pt;
+  border: 0.5pt solid #DDE7F1;
+  text-align: right;
+}}
+table.balance-table td:first-child {{ text-align: left; }}
+.tag {{
+  display: inline-block;
+  margin-left: 4pt;
+  padding: 1pt 4pt;
+  border-radius: 99pt;
+  background: #EEF5FC;
+  color: #002E5F;
+  font-size: 6.8pt;
+  font-weight: 850;
+}}
+.neg {{ color: #B71C1C !important; }}
+.pos {{ color: #1B5E20 !important; }}
+.risk-alerts {{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8pt;
+  margin: 8pt 0 12pt;
+}}
+.risk-alert {{
+  padding: 9pt 10pt;
+  border-radius: 7pt;
+  border: 0.7pt solid #DDE7F1;
+  background: #FFFFFF;
+}}
+.risk-alert.high {{ border-color: #F2C5C5; background: #FFF3F3; }}
+.risk-alert.medium {{ border-color: #F6D99C; background: #FFF8E8; }}
+.risk-alert b {{
+  display: block;
+  color: #002E5F;
+  font-size: 9.5pt;
+}}
+.risk-alert span {{
+  display: block;
+  margin-top: 3pt;
+  color: #5F6E7A;
+  font-size: 8pt;
+  font-weight: 700;
+}}
+.subsection-title {{
+  margin: 13pt 0 7pt;
+  color: #002E5F;
+  font-size: 11pt;
+  font-weight: 850;
+}}
+table.risk-table {{
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 8.3pt;
+}}
+table.risk-table.compact {{ font-size: 8.8pt; }}
+table.risk-table th {{
+  padding: 6pt 6pt;
+  border: 0.5pt solid #D6E2EE;
+  background: #EAF1F8;
+  color: #002E5F;
+  text-align: right;
+  font-weight: 850;
+}}
+table.risk-table th:first-child,
+table.risk-table th:nth-child(2) {{ text-align: left; }}
+table.risk-table td {{
+  padding: 5pt 6pt;
+  border: 0.5pt solid #DDE7F1;
+  text-align: right;
+}}
+table.risk-table td:first-child,
+table.risk-table td:nth-child(2) {{ text-align: left; }}
 
 /* Synthèse table */
 table.synthesis {{
@@ -747,16 +1226,19 @@ table.synthesis td.pos {{ color: #1B5E20; }}
       <div class="kpi"><span>Total Dépenses</span><b>{_short_fmt(total_dep_sum)}</b><small>M FCFA</small></div>
       <div class="kpi"><span>Net Funding</span><b>{_short_fmt(total_net_sum)}</b><small>M FCFA</small></div>
       <div class="kpi"><span>Point bas cumulé</span><b>{_short_fmt(min_cumulative)}</b><small>M FCFA</small></div>
-      <div class="kpi"><span>Buckets négatifs</span><b>{negative_buckets}</b><small>sur {len(buckets)}</small></div>
+      <div class="kpi"><span>Gap bilan GL</span><b>{_short_fmt(balance_gap / 1e6) if balance_gap is not None else "-"}</b><small>M FCFA</small></div>
     </div>
     <div class="cover-footer">
       <div>{lcr_chip}</div>
       <table>
         <tr><td class="lbl">Date du rapport</td><td>{generated_at.strftime("%d/%m/%Y %H:%M")}</td></tr>
-        <tr><td class="lbl">Édité par</td><td>{html.escape(user_label)}</td></tr>
+        <tr><td class="lbl">Édité par</td><td>{html.escape(public_user_label)}</td></tr>
       </table>
     </div>
   </section>
+
+  <!-- BILAN OFFICIEL -->
+  {balance_sheet_html}
 
   <!-- SYNTHÈSE -->
   <section class="section">
@@ -783,6 +1265,15 @@ table.synthesis td.pos {{ color: #1B5E20; }}
     {gap_chart}
     {profile_chart}
   </section>
+
+  <!-- TAUX / BASIS RISK -->
+  {rate_basis_html}
+
+  <!-- EVE / IRRBB -->
+  {eve_irrbb_html}
+
+  <!-- SCENARIO ANALYSIS -->
+  {scenario_analysis_html}
 
   <!-- COMMENTAIRES -->
   <section class="section">

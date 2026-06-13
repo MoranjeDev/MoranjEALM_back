@@ -24,7 +24,13 @@ import pandas as pd
 from django.utils import timezone
 
 from apps.engine.buckets import build_buckets
+from apps.engine.lineage import report_lineage
 from apps.engine.rate_gap import ASSETS_RATE_INPUTS, LIABILITIES_RATE_INPUTS
+from apps.engine.rate_behavior import (
+    rate_behavior_for_input,
+    shock_days_after_lag,
+    summarize_rate_behaviors,
+)
 from apps.governance.services import get_assumption_value
 from apps.parameters.models import Parameter
 
@@ -148,6 +154,7 @@ def _collect_positions():
                 "amount": float(getattr(obj, amount_field) or 0),
                 "rate": float(getattr(obj, rate_field) or 0) / 100.0,
                 "maturity": getattr(obj, date_field),
+                "rate_behavior": rate_behavior_for_input(label, obj),
             })
     for model_cls, label, amount_field, rate_field, date_field in LIABILITIES_RATE_INPUTS:
         for obj in model_cls.objects.all():
@@ -157,6 +164,7 @@ def _collect_positions():
                 "amount": float(getattr(obj, amount_field) or 0),
                 "rate": float(getattr(obj, rate_field) or 0) / 100.0,
                 "maturity": getattr(obj, date_field),
+                "rate_behavior": rate_behavior_for_input(label, obj),
             })
     return rows
 
@@ -170,6 +178,10 @@ def _empty_product(label: str, side: str) -> dict:
         "weighted_rate_amount": 0.0,
         "interest": 0.0,
         "avg_rate": 0.0,
+        "behavior_amount": 0.0,
+        "behavior_weighted_lag": 0.0,
+        "behavior_weighted_pass_through": 0.0,
+        "behavior_sources": set(),
     }
 
 
@@ -184,6 +196,9 @@ def _finalize_products(products: dict[tuple[str, str], dict]) -> list[dict]:
             "exposure": round(item["exposure"], 2),
             "avg_rate": round(avg_rate, 2),
             "interest": round(item["interest"], 2),
+            "repricing_lag_months": round(item["behavior_weighted_lag"] / item["behavior_amount"], 2) if item["behavior_amount"] else 0.0,
+            "pass_through_pct": round(item["behavior_weighted_pass_through"] / item["behavior_amount"], 2) if item["behavior_amount"] else 100.0,
+            "behavioral_sources": sorted(item["behavior_sources"]),
         })
     return sorted(rows, key=lambda row: (row["side"], row["label"]))
 
@@ -217,8 +232,15 @@ def _nii_for_scenario(positions, scenario: NIIScenario, horizon_days: int, ref) 
         years = _years_to_maturity(p["maturity"], ref)
         h = _classify_horizon(p["maturity"], ref)
         shift = _shift_for(scenario, h, years) / 10000.0  # bp -> décimal
-        applied_rate = p["rate"] + shift
-        amount_yearly = p["amount"] * applied_rate * (days / 365.0)
+        behavior = p.get("rate_behavior") or rate_behavior_for_input(p["label"])
+        shock_days = shock_days_after_lag(days, behavior)
+        effective_shift = shift * behavior.pass_through_factor
+        effective_shift_for_weight = effective_shift * (shock_days / days) if days else 0.0
+        applied_rate = p["rate"] + effective_shift_for_weight
+        amount_yearly = (
+            p["amount"] * p["rate"] * (days / 365.0)
+            + p["amount"] * effective_shift * (shock_days / 365.0)
+        )
         exposure = p["amount"] * (days / 365.0)
         key = (p["side"], p["label"])
         item = products.setdefault(key, _empty_product(p["label"], p["side"]))
@@ -226,6 +248,10 @@ def _nii_for_scenario(positions, scenario: NIIScenario, horizon_days: int, ref) 
         item["exposure"] += exposure
         item["weighted_rate_amount"] += p["amount"] * applied_rate
         item["interest"] += amount_yearly
+        item["behavior_amount"] += p["amount"]
+        item["behavior_weighted_lag"] += p["amount"] * behavior.repricing_lag_months
+        item["behavior_weighted_pass_through"] += p["amount"] * behavior.pass_through_pct
+        item["behavior_sources"].add(behavior.source if not behavior.param_code else behavior.param_code)
 
         bucket = _bucket_label(p["maturity"], ref)
         if p["side"] == "asset":
@@ -271,11 +297,13 @@ def compute_nii_sensitivity(horizon_days: int = DEFAULT_HORIZON_DAYS) -> dict:
 
     return {
         "reference_date": ref.isoformat(),
+        "lineage": report_lineage("nii", horizon_days=horizon_days),
         "horizon_days": horizon_days,
         "base_nii": base_nii,
         "base_interest_revenue": base_result["interest_revenue"],
         "base_interest_cost": base_result["interest_cost"],
         "base_by_product": base_result["by_product"],
         "base_by_bucket": base_result["by_bucket"],
+        "rate_behavior_summary": summarize_rate_behaviors(positions),
         "scenarios": scenarios,
     }

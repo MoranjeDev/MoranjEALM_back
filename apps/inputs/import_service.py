@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import openpyxl
+from django.db.models import NOT_PROVIDED
 from django.db import transaction
 from django.utils import timezone
 
@@ -84,7 +85,20 @@ def _parse_value(value: Any, field_obj) -> Any:
             return value.strip().lower() in ("1", "true", "yes", "oui", "vrai")
         return bool(value)
 
-    return str(value).strip() if isinstance(value, str) else value
+    parsed = str(value).strip() if isinstance(value, str) else value
+    if field_obj.name == "devise" and isinstance(parsed, str):
+        code = parsed.upper()
+        # Les anciens fichiers et certains exports sources utilisent CFA.
+        # Le reste de l'application travaille avec le code ISO/pivot XAF.
+        return "XAF" if code == "CFA" else code[:3]
+    return parsed
+
+
+def _field_default(field_obj) -> Any:
+    """Retourne le default Django concret du champ, ou None s'il n'existe pas."""
+    if field_obj.default is NOT_PROVIDED:
+        return None
+    return field_obj.default() if callable(field_obj.default) else field_obj.default
 
 
 # ----------------------------------------------------------------------------
@@ -150,7 +164,11 @@ def _import_sheet(workbook, kind: str, *, replace: bool) -> SheetReport:
             obj_kwargs = {}
             for col_idx, field_name in valid_columns:
                 value = row[col_idx] if col_idx < len(row) else None
-                obj_kwargs[field_name] = _parse_value(value, field_map[field_name])
+                field_obj = field_map[field_name]
+                parsed = _parse_value(value, field_obj)
+                if parsed is None and field_obj.has_default():
+                    parsed = _field_default(field_obj)
+                obj_kwargs[field_name] = parsed
 
             # Validation rapide des champs obligatoires non nullables
             for fname, fobj in field_map.items():

@@ -28,6 +28,9 @@ urlpatterns = [
     path("api/ftp/", include("apps.ftp.urls")),
     path("api/reporting/", include("apps.reporting.urls")),
     path("api/licensing/", include("apps.licensing.urls")),
+    path("api/balance-sheet/", include("apps.balance_sheet.urls")),
+    path("api/off-balance/", include("apps.off_balance.urls")),
+    path("api/mis/", include("apps.mis.urls")),
 
     # OpenAPI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

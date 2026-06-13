@@ -213,3 +213,172 @@ class EmbeddedOption(models.Model):
 
     def __str__(self) -> str:
         return f"{self.option_type} {self.code}"
+
+
+# ----------------------------------------------------------------------------
+# BehavioralDistributionParam — paramètres comportementaux par segment
+# Remplace les scalaires globaux du Parameter singleton
+# ----------------------------------------------------------------------------
+
+BEHAVIORAL_PRODUCT_CHOICES = [
+    # Comptes non-contractuels (NMD)
+    ("compte_courant",    "Comptes courants 371"),
+    ("compte_cheque",     "Comptes chèques 372"),
+    ("compte_livret",     "Comptes livrets 373"),
+    ("cpte_corr",         "Comptes correspondants"),
+    ("beac",              "Compte BEAC"),
+    # Crédits
+    ("credit_conso",      "Crédit consommation"),
+    ("credit_immobilier", "Crédit immobilier"),
+    ("credit_corporate",  "Crédit corporate"),
+    ("credit_autre",      "Autre crédit"),
+    # Dépôts à terme
+    ("depot_terme",       "Dépôt à terme"),
+    ("bon_caisse",        "Bon de caisse"),
+    # Autre
+    ("autre",             "Autre produit"),
+]
+
+BEHAVIORAL_SEGMENT_CHOICES = [
+    ("retail",      "Retail / Particulier"),
+    ("sme",         "PME"),
+    ("corporate",   "Corporate"),
+    ("public",      "Secteur public / Institutionnel"),
+    ("financial",   "Institutions financières"),
+    ("all",         "Tous segments"),
+]
+
+
+class BehavioralDistributionParam(models.Model):
+    """Paramètres comportementaux par produit × segment × BU.
+
+    Remplace les coefficients scalaires globaux du Parameter singleton
+    (stable_courant, stable_cheque...) par des paramètres granulaires
+    permettant de distinguer ex. Retail 70% stable vs Corporate 35% stable.
+
+    Lié au workflow de gouvernance : doit être approuvé (maker-checker)
+    avant d'être activé dans le moteur de calcul.
+    """
+    code = models.CharField(max_length=64, unique=True, help_text="Identifiant unique (ex: compte_courant_retail_BU_RETAIL).")
+    label = models.CharField(max_length=255)
+
+    # Axes de segmentation
+    product_type = models.CharField(max_length=32, choices=BEHAVIORAL_PRODUCT_CHOICES)
+    segment = models.CharField(max_length=32, choices=BEHAVIORAL_SEGMENT_CHOICES, default="all")
+    business_unit = models.CharField(max_length=64, blank=True, default="", help_text="BU spécifique (vide = tous les BU).")
+    secteur = models.CharField(max_length=64, blank=True, default="", help_text="Secteur économique (vide = tous les secteurs).")
+    devise = models.CharField(max_length=3, blank=True, default="", help_text="Devise (vide = toutes les devises).")
+
+    # --- Paramètres NMD (dépôts non-contractuels) ---
+    # Décomposition des soldes en 3 composantes (somme = 100%)
+    stable_core_pct = models.FloatField(
+        default=50.0,
+        help_text="Part stable cœur (%) — écoulement long, repricing lent."
+    )
+    stable_non_core_pct = models.FloatField(
+        default=20.0,
+        help_text="Part stable non-cœur (%) — écoulement moyen."
+    )
+    volatile_pct = models.FloatField(
+        default=30.0,
+        help_text="Part volatile (%) — sort au bucket Call. stable_core + stable_non_core + volatile = 100."
+    )
+
+    # Durées d'écoulement comportemental
+    runoff_core_months = models.IntegerField(
+        default=60,
+        help_text="Durée d'écoulement de la part stable cœur (mois)."
+    )
+    runoff_non_core_months = models.IntegerField(
+        default=24,
+        help_text="Durée d'écoulement de la part stable non-cœur (mois)."
+    )
+
+    # Repricing
+    repricing_lag_months = models.IntegerField(
+        default=1,
+        help_text="Délai de repricing aux taux de marché (mois)."
+    )
+    pass_through_pct = models.FloatField(
+        default=50.0,
+        help_text="Pass-through des hausses de taux vers la clientèle (β, %). 0 = aucune transmission, 100 = transmission intégrale."
+    )
+
+    # --- Paramètres crédits ---
+    cpr_annual_pct = models.FloatField(
+        default=0.0,
+        help_text="Taux annuel de remboursement anticipé (CPR, %). 0 si non applicable."
+    )
+    early_withdrawal_pct = models.FloatField(
+        default=0.0,
+        help_text="Taux annuel de retrait anticipé (pour dépôts à terme). 0 si non applicable."
+    )
+    rollover_rate_pct = models.FloatField(
+        default=0.0,
+        help_text="Taux de renouvellement à maturité (%). 0 si non applicable."
+    )
+
+    # --- Gouvernance ---
+    assumption_version = models.ForeignKey(
+        AssumptionVersion,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="behavioral_distribution_params",
+        help_text="Version d'hypothèse (workflow maker-checker).",
+    )
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Actif dans le moteur de calcul. Ne passer à True qu'après approbation."
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text="Paramètre par défaut utilisé si aucun paramètre plus spécifique n'est trouvé."
+    )
+
+    # Audit
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Paramètre comportemental par segment"
+        verbose_name_plural = "Paramètres comportementaux par segment"
+        ordering = ["product_type", "segment", "business_unit"]
+        # Unicité par combinaison d'axes
+        unique_together = [["product_type", "segment", "business_unit", "secteur", "devise"]]
+
+    def __str__(self) -> str:
+        parts = [self.product_type, self.segment]
+        if self.business_unit:
+            parts.append(self.business_unit)
+        return " / ".join(parts)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        total = self.stable_core_pct + self.stable_non_core_pct + self.volatile_pct
+        if abs(total - 100.0) > 0.01:
+            raise ValidationError(
+                f"stable_core_pct + stable_non_core_pct + volatile_pct doit être égal à 100% (actuellement {total:.1f}%)"
+            )
+
+    @classmethod
+    def resolve(cls, product_type: str, segment: str = "", business_unit: str = "", secteur: str = "", devise: str = ""):
+        """Résout le paramètre le plus spécifique actif pour une combinaison donnée.
+
+        Ordre de priorité (du plus spécifique au plus général) :
+        1. product_type + segment + business_unit + secteur + devise
+        2. product_type + segment + business_unit + secteur
+        3. product_type + segment + business_unit
+        4. product_type + segment
+        5. product_type + segment="all"
+        6. None (paramètre par défaut introuvable)
+        """
+        qs = cls.objects.filter(product_type=product_type, is_active=True)
+        for seg in [segment, "all"]:
+            for bu in [business_unit, ""]:
+                for sec in [secteur, ""]:
+                    for dev in [devise, ""]:
+                        result = qs.filter(segment=seg, business_unit=bu, secteur=sec, devise=dev).first()
+                        if result:
+                            return result
+        return qs.filter(is_default=True).first()

@@ -1,10 +1,11 @@
 """
 Configuration des buckets de maturité ALM.
 
-Reproduit fidèlement la grille temporelle de la version Symfony :
-    [hier, dateMajCore, +7j, +15j, +1m, +2m, +3m, +6m, +1a, +3a, +5a, +∞]
+Grille temporelle court-terme explicite (13 bornes = 12 intervalles) :
+    [call, over, 2-7j, 8-15j, +1m, +2m, +3m, +6m, +1a, +3a, +5a, +∞]
 
-Soit 11 buckets bornés entre ces 12 points.
+Le bucket "Call" (code: call) couvre les éléments à vue / exigibles
+immédiatement, dont la date de maturité est ≤ date d'arrêté (days=0).
 """
 
 from __future__ import annotations
@@ -32,18 +33,18 @@ class Bucket:
 
 # Définition normalisée des bornes (offset par rapport à la date d'arrêté)
 _OFFSETS: list[tuple[str, str, dict | None]] = [
-    ("j-1",      "Hier",                  {"days": -1}),
-    ("ref",      "Aujourd'hui",           {"days": 0}),
-    ("7j",       "+ 7 jours",             {"days": 7}),
-    ("15j",      "+ 15 jours",            {"days": 15}),
-    ("1m",       "+ 1 mois",              {"months": 1}),
-    ("2m",       "+ 2 mois",              {"months": 2}),
-    ("3m",       "+ 3 mois",              {"months": 3}),
-    ("6m",       "+ 6 mois",              {"months": 6}),
-    ("1a",       "+ 1 an",                {"years": 1}),
-    ("3a",       "+ 3 ans",               {"years": 3}),
-    ("5a",       "+ 5 ans",               {"years": 5}),
-    ("inf",      "Au-delà",               None),
+    ("call",    "Call (< 1 jour)",       {"days": 0}),
+    ("over",    "Overnight (1 jour)",     {"days": 1}),
+    ("2_7j",    "2 – 7 jours",           {"days": 7}),
+    ("8_15j",   "8 – 15 jours",          {"days": 15}),
+    ("1m",      "+ 1 mois",              {"months": 1}),
+    ("2m",      "+ 2 mois",              {"months": 2}),
+    ("3m",      "+ 3 mois",              {"months": 3}),
+    ("6m",      "+ 6 mois",              {"months": 6}),
+    ("1a",      "+ 1 an",               {"years": 1}),
+    ("3a",      "+ 3 ans",              {"years": 3}),
+    ("5a",      "+ 5 ans",              {"years": 5}),
+    ("inf",     "Au-delà de 5 ans",     None),
 ]
 
 
@@ -77,7 +78,7 @@ def build_buckets(reference_date: dt.datetime) -> list[Bucket]:
     return buckets
 
 
-# Codes de buckets utilisés dans les ratios (LCR : 30 jours)
-LCR_BUCKETS = ["j-1_ref", "ref_7j", "7j_15j", "15j_1m"]  # ≤ 30 jours
+# Codes de buckets LCR (borne supérieure ≤ 30 jours)
+LCR_BUCKETS = ["call_over", "over_2_7j", "2_7j_8_15j", "8_15j_1m"]
 
 NB_BUCKETS = 11

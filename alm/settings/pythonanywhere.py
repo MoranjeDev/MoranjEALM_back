@@ -4,7 +4,10 @@ import os
 from .base import *  # noqa: F401,F403
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
-ALLOWED_HOSTS = csv_env("DJANGO_ALLOWED_HOSTS")
+ALLOWED_HOSTS = csv_env(
+    "DJANGO_ALLOWED_HOSTS",
+    ".pythonanywhere.com,localhost,127.0.0.1",
+)
 
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -18,10 +21,10 @@ X_FRAME_OPTIONS = "DENY"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = BASE_DIR / "media"
 
-# Pour une demo PythonAnywhere, SQLite peut remplacer MySQL afin d'economiser
-# le quota disque et simplifier l'installation. MySQL reste le comportement
-# par defaut des que DJANGO_DB_ENGINE n'est pas "sqlite".
-if os.environ.get("DJANGO_DB_ENGINE", "mysql").lower() == "sqlite":
+# Pour le serveur de test PythonAnywhere, SQLite est le mode par defaut afin
+# d'economiser le quota disque et d'eviter mysqlclient. MySQL reste disponible
+# explicitement avec DJANGO_DB_ENGINE=mysql.
+if os.environ.get("DJANGO_DB_ENGINE", "sqlite").lower() == "sqlite":
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",

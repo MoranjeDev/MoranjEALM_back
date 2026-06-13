@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from contextlib import contextmanager
 from typing import Iterable
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 
 from apps.inputs import models as M
+from .behavioral_resolver import resolve_behavioral_params
 
 # ----------------------------------------------------------------------------
 # Mapping (catégorie d'output -> méthode de génération)
@@ -108,6 +110,39 @@ def _make_output(type_output: str, date: dt.datetime, amount: float) -> M.Output
     return M.Output(type_output=type_output, date=date, montant=int(round(amount)))
 
 
+def _row_behavioral_params(product_kind: str, row: object | None = None) -> dict:
+    return resolve_behavioral_params(
+        product_kind,
+        segment="all",
+        business_unit=getattr(row, "business_unit", "") if row else "",
+        secteur=getattr(row, "secteur", "") if row else "",
+        devise=getattr(row, "devise", "") if row else "",
+    )
+
+
+def _future_call_date(ref: dt.datetime) -> dt.datetime:
+    return ref + dt.timedelta(days=30)
+
+
+def _behavioral_credit_split(amount: float, ref: dt.datetime, row: object) -> tuple[float, float, dict]:
+    params = _row_behavioral_params("credit", row)
+    cpr = max(0.0, min(float(params.get("cpr_annual_pct") or 0.0), 100.0)) / 100.0
+    prepayment = amount * cpr
+    remaining = max(amount - prepayment, 0.0)
+    return remaining, prepayment, params
+
+
+def _behavioral_liability_split(product_kind: str, amount: float, ref: dt.datetime, row: object) -> tuple[float, float, float, dict]:
+    params = _row_behavioral_params(product_kind, row)
+    early = max(0.0, min(float(params.get("early_withdrawal_pct") or 0.0), 100.0)) / 100.0
+    rollover = max(0.0, min(float(params.get("rollover_rate_pct") or 0.0), 100.0)) / 100.0
+    early_amount = amount * early
+    rolled_amount = amount * rollover
+    projected_base = max(amount - early_amount - rolled_amount, 0.0)
+    factor = projected_base / amount if amount else 1.0
+    return factor, early_amount, rolled_amount, params
+
+
 # ----------------------------------------------------------------------------
 # Générateurs spécifiques
 # ----------------------------------------------------------------------------
@@ -119,7 +154,10 @@ def _gen_credit(ref: dt.datetime) -> Iterable[M.Output]:
         dates, scheduled_count = _credit_outputs_like_symfony(c.date_deu_echeance, ref, c.frequence)
         if not dates:
             continue
-        amount_each = (c.capital_restant or 0) / scheduled_count
+        remaining, prepayment, _ = _behavioral_credit_split(c.capital_restant or 0, ref, c)
+        if prepayment:
+            yield _make_output("credit", _future_call_date(ref), prepayment)
+        amount_each = remaining / scheduled_count
         for d in dates:
             yield _make_output("credit", d, amount_each)
 
@@ -205,6 +243,9 @@ def _gen_depot_terme(ref: dt.datetime) -> Iterable[M.Output]:
             continue
 
         amount = row.montant or 0
+        liability_factor, early_amount, _, _ = _behavioral_liability_split("depot_terme", amount, ref, row)
+        if early_amount:
+            yield _make_output("depot_terme", _future_call_date(ref), early_amount)
         rate = row.taux_interet or 0
         periodicity = row.periodicite or ""
         month_gap = ((row.maturite - ref).days) / 30
@@ -213,7 +254,7 @@ def _gen_depot_terme(ref: dt.datetime) -> Iterable[M.Output]:
             initial_date = row.date_mep or ref
             year_gap = ((row.maturite - initial_date).days) / 360
             interest_rate = (rate / 100) * year_gap
-            pay = amount * (1 + interest_rate)
+            pay = amount * (1 + interest_rate) * liability_factor
             yield _make_output("depot_terme", row.maturite, pay)
             continue
 
@@ -231,14 +272,14 @@ def _gen_depot_terme(ref: dt.datetime) -> Iterable[M.Output]:
         scheduled_count = int(month_gap / freq)
         period_rate = rate * freq / 1200
         interest = amount * period_rate
-        principal_plus_interest = amount + interest
+        principal_plus_interest = (amount + interest) * liability_factor
 
         yield _make_output("depot_terme", row.maturite, principal_plus_interest)
         for i in range(scheduled_count):
             due_date = _months_before(row.maturite, i * freq)
             if not _is_after_reference_day(due_date, ref):
                 continue
-            yield _make_output("depot_terme", due_date, interest)
+            yield _make_output("depot_terme", due_date, interest * liability_factor)
 
 
 def _gen_bon(ref: dt.datetime) -> Iterable[M.Output]:
@@ -247,18 +288,12 @@ def _gen_bon(ref: dt.datetime) -> Iterable[M.Output]:
             continue
 
         amount = row.montant or 0
+        liability_factor, early_amount, _, _ = _behavioral_liability_split("bon", amount, ref, row)
+        if early_amount:
+            yield _make_output("bon", _future_call_date(ref), early_amount)
         rate = row.taux or 0
         periodicity = row.periodicite or ""
         month_gap = ((row.maturite - ref).days) / 30
-
-        if periodicity == "A terme":
-            initial_date = row.date_mep or ref
-            year_gap = ((row.maturite - initial_date).days) / 360
-            interest_rate = (rate / 100) * year_gap
-            pay = amount * (1 + interest_rate)
-            yield _make_output("bon", row.maturite, pay)
-            continue
-
         periodicity_months = {
             "Annuelle": 12,
             "Mensuelle": 1,
@@ -266,6 +301,17 @@ def _gen_bon(ref: dt.datetime) -> Iterable[M.Output]:
             "Trimestrielle": 3,
             "Semestrielle": 6,
         }
+        if periodicity not in {"A terme", *periodicity_months.keys()}:
+            periodicity = "A terme"
+
+        if periodicity == "A terme":
+            initial_date = row.date_mep or ref
+            year_gap = ((row.maturite - initial_date).days) / 360
+            interest_rate = (rate / 100) * year_gap
+            pay = amount * (1 + interest_rate) * liability_factor
+            yield _make_output("bon", row.maturite, pay)
+            continue
+
         freq = periodicity_months.get(periodicity)
         if not freq:
             continue
@@ -273,13 +319,13 @@ def _gen_bon(ref: dt.datetime) -> Iterable[M.Output]:
         scheduled_count = int(month_gap / freq)
         period_rate = rate * freq / 1200
         interest = amount * period_rate
-        principal_plus_interest = amount + interest
+        principal_plus_interest = (amount + interest) * liability_factor
 
         for i in range(scheduled_count):
             due_date = _months_before(row.maturite, i * freq)
             if not _is_after_reference_day(due_date, ref):
                 continue
-            pay = principal_plus_interest if periodicity == "Annuelle" else interest
+            pay = principal_plus_interest if periodicity == "Annuelle" else interest * liability_factor
             yield _make_output("bon", due_date, pay)
 
 
@@ -588,8 +634,29 @@ def _gen_compte_vue_cor(ref: dt.datetime) -> Iterable[M.Output]:
         yield _make_output("compte_vue_cor", due_date, amount)
 
 
+def _behavioral_volatile_override(product_kind: str, computed_var: float) -> float:
+    """
+    Retourne le taux de volatilité (part sortante) à utiliser pour un produit NMD.
+
+    Priorité :
+    1. BehavioralDistributionParam actif pour ce product_type → volatile_pct / 100
+    2. Valeur calculée statistiquement (algorithme Symfony) → computed_var
+
+    Ce mécanisme permet à la banque de valider et d'activer ses propres hypothèses
+    comportementales par segment (directive de la directrice ALM) tout en conservant
+    l'algorithme Symfony comme fallback.
+    """
+    try:
+        params = resolve_behavioral_params(product_kind)
+        if params.get("source") == "behavioral_param":
+            return params["volatile_pct"] / 100.0
+    except Exception:
+        pass
+    return computed_var
+
+
 def _gen_compte_371(ref: dt.datetime) -> Iterable[M.Output]:
-    """Comptes courants 371 : modèle comportemental Symfony."""
+    """Comptes courants 371 : modèle comportemental Symfony avec surcharge BehavioralDistributionParam."""
     from apps.parameters.models import Parameter
 
     param = Parameter.get_solo()
@@ -649,6 +716,9 @@ def _gen_compte_371(ref: dt.datetime) -> Iterable[M.Output]:
     param.stable_courant = stable
     param.var_courant = var
     param.save(update_fields=["beta_courant", "stable_courant", "var_courant", "updated_at"])
+
+    # Surcharge par BehavioralDistributionParam si un paramètre actif existe
+    var = _behavioral_volatile_override("compte_courant", var)
 
     initial_count = len(logs)
     for _ in range(30):
@@ -723,6 +793,9 @@ def _gen_compte_372(ref: dt.datetime) -> Iterable[M.Output]:
     param.var_cheque = var
     param.save(update_fields=["beta_cheque", "stable_cheque", "var_cheque", "updated_at"])
 
+    # Surcharge par BehavioralDistributionParam si un paramètre actif existe
+    var = _behavioral_volatile_override("compte_cheque", var)
+
     initial_count = len(logs)
     for _ in range(30):
         avg = sum(logs) / len(logs)
@@ -796,6 +869,9 @@ def _gen_compte_373(ref: dt.datetime) -> Iterable[M.Output]:
     param.var_livret = var
     param.save(update_fields=["beta_livret", "stable_livret", "var_livret", "updated_at"])
 
+    # Surcharge par BehavioralDistributionParam si un paramètre actif existe
+    var = _behavioral_volatile_override("compte_livret", var)
+
     initial_count = len(logs)
     for _ in range(30):
         avg = sum(logs) / len(logs)
@@ -845,7 +921,37 @@ OUTPUT_TYPES = list(GENERATORS.keys())
 # Orchestrateur
 # ----------------------------------------------------------------------------
 
-@transaction.atomic
+class OutputRegenerationAlreadyRunning(RuntimeError):
+    """Une régénération est déjà en cours dans un autre worker/processus."""
+
+
+@contextmanager
+def _regeneration_lock(timeout_seconds: int = 5):
+    """Evite deux remplacements concurrents de la table Output.
+
+    MySQL pose un verrou applicatif partagé entre connexions. Les autres bases
+    gardent le comportement habituel, utile pour SQLite en local/PythonAnywhere.
+    """
+    if connection.vendor != "mysql":
+        yield
+        return
+
+    acquired = False
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT GET_LOCK(%s, %s)", ["moranjealm_regenerate_outputs", timeout_seconds])
+        acquired = cursor.fetchone()[0] == 1
+    if not acquired:
+        raise OutputRegenerationAlreadyRunning(
+            "Une régénération des outputs est déjà en cours. Réessayez dans quelques secondes."
+        )
+
+    try:
+        yield
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT RELEASE_LOCK(%s)", ["moranjealm_regenerate_outputs"])
+
+
 def regenerate_outputs(reference_date: dt.datetime | None = None) -> dict:
     """Recalcule la totalité des Output à partir des inputs.
     Retourne un récapitulatif {type_output: nb_lignes_créées}."""
@@ -857,14 +963,20 @@ def regenerate_outputs(reference_date: dt.datetime | None = None) -> dict:
     if timezone.is_naive(reference_date):
         reference_date = timezone.make_aware(reference_date)
 
-    M.Output.objects.all().delete()
     summary: dict[str, int] = {}
+    generated: dict[str, list[M.Output]] = {}
 
     for type_output, generator in GENERATORS.items():
         objs = list(generator(reference_date))
-        if objs:
-            M.Output.objects.bulk_create(objs, batch_size=1000)
+        generated[type_output] = objs
         summary[type_output] = len(objs)
+
+    with _regeneration_lock():
+        with transaction.atomic():
+            M.Output.objects.all().delete()
+            for objs in generated.values():
+                if objs:
+                    M.Output.objects.bulk_create(objs, batch_size=1000)
 
     return {
         "reference_date": reference_date.isoformat(),

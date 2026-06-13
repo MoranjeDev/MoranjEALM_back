@@ -23,6 +23,17 @@ from simple_history.models import HistoricalRecords
 CATEGORY_CORE = "core"
 CATEGORY_EXTRA = "extra"
 
+# ----------------------------------------------------------------------------
+# Choix du type de taux d'intérêt (basis risk analysis)
+# ----------------------------------------------------------------------------
+TYPE_TAUX_CHOICES = [
+    ("fixe",       "Taux fixe"),
+    ("variable",   "Taux variable (marché)"),
+    ("administre", "Taux administré (BEAC/TIAO)"),
+    ("indexe",     "Taux indexé (EURIBOR/SOFR)"),
+    ("revisable",  "Taux révisable"),
+]
+
 
 class TimestampedModel(models.Model):
     """Ajoute created_at et updated_at à tous les modèles d'inputs."""
@@ -53,6 +64,22 @@ class InputCredit(TimestampedModel):
     capital_restant = models.BigIntegerField()
     montant_debloque = models.BigIntegerField()
     frequence = models.CharField(max_length=255)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
 
@@ -78,6 +105,22 @@ class InputTerme(TimestampedModel):
     montant = models.BigIntegerField()
     periodicite = models.CharField(max_length=255)
     taux_int = models.FloatField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -99,6 +142,22 @@ class InputDecouvert(TimestampedModel):
     taux_dela_plafond = models.FloatField()
     duree = models.IntegerField()
     date_fin = models.DateTimeField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -117,6 +176,22 @@ class InputBta(TimestampedModel):
     maturite = models.DateTimeField()
     per_paiement = models.CharField(max_length=255)
     taux_int = models.FloatField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -134,6 +209,22 @@ class InputOta(TimestampedModel):
     solde = models.BigIntegerField()
     maturite = models.DateTimeField()
     taux_int = models.FloatField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -145,7 +236,10 @@ class InputOta(TimestampedModel):
 
 class InputEmpruntObl(TimestampedModel):
     """Emprunts obligataires détenus (entité InputEmpruntObl)."""
-    devise = models.CharField(max_length=255)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
     nom_client = models.CharField(max_length=255)
     code_emission = models.CharField(max_length=255)
     description = models.CharField(max_length=255)
@@ -153,6 +247,18 @@ class InputEmpruntObl(TimestampedModel):
     solde = models.BigIntegerField()
     maturite = models.DateTimeField()
     taux_int = models.FloatField()
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -167,12 +273,27 @@ class InputTabAmort(TimestampedModel):
     code_agence = models.CharField(max_length=5)
     num_dossier = models.CharField(max_length=6)
     avenant = models.BigIntegerField()
-    devise = models.CharField(max_length=255)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
     num_echeance = models.BigIntegerField()
     date_echeance = models.DateTimeField()
     amort_calcul = models.BigIntegerField()
     montant_echeance = models.BigIntegerField()
     statut_echeance = models.CharField(max_length=255)
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -196,6 +317,22 @@ class InputPretCor(TimestampedModel):
     taux_interet = models.FloatField()
     capital_restant = models.BigIntegerField()
     periodicite = models.CharField(max_length=255)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -208,13 +345,28 @@ class InputPretCor(TimestampedModel):
 class InputPretInterBanc(TimestampedModel):
     """Prêts interbancaires à blanc (entité InputPretInterBanc)."""
     racine = models.CharField(max_length=6)
-    devise = models.CharField(max_length=255)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
     contrepartie = models.CharField(max_length=255)
     solde = models.BigIntegerField()
     date_mep = models.DateTimeField()
     maturite = models.DateTimeField()
     per_paiement = models.CharField(max_length=255)
     taux_int = models.FloatField()
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -230,6 +382,22 @@ class InputBeac(TimestampedModel):
     cumul = models.BigIntegerField()
     tableauLog = models.FloatField(null=True, blank=True)
     tableauVarLog = models.FloatField(null=True, blank=True)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="administre",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -252,6 +420,22 @@ class InputPretTitre(TimestampedModel):
     interet = models.BigIntegerField()
     tva = models.BigIntegerField()
     montant_rembourser = models.BigIntegerField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -265,6 +449,22 @@ class InputBillet(TimestampedModel):
     """Billets et pièces (entité InputBillet)."""
     date = models.DateTimeField()
     solde = models.BigIntegerField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -287,6 +487,22 @@ class InputCpteCorr(TimestampedModel):
     cumul = models.BigIntegerField()
     tableauLog = models.FloatField(null=True, blank=True)
     tableauVarLog = models.FloatField(null=True, blank=True)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -307,6 +523,22 @@ class InputDepotTerme(TimestampedModel):
     montant = models.BigIntegerField()
     taux_interet = models.FloatField()
     periodicite = models.CharField(max_length=255)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -326,6 +558,22 @@ class InputBonCaisse(TimestampedModel):
     montant = models.BigIntegerField()
     taux = models.FloatField()
     periodicite = models.CharField(max_length=255)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -345,6 +593,22 @@ class InputPensionLivree(TimestampedModel):
     echeance = models.DateTimeField()
     jour_echeance = models.IntegerField()
     taux_interet = models.FloatField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -364,6 +628,22 @@ class InputEmpruntInter(TimestampedModel):
     echance = models.DateTimeField()  # NB: nom volontairement conservé (typo Symfony)
     jour_echeance = models.IntegerField()
     taux_interet = models.FloatField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -382,6 +662,22 @@ class InputEmpruntInterBanc(TimestampedModel):
     interet = models.BigIntegerField()
     frequence_paiement = models.CharField(max_length=255)
     taux = models.FloatField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -397,6 +693,22 @@ class InputCompteCourant(TimestampedModel):
     cumul = models.BigIntegerField()
     tableauLog = models.FloatField(null=True, blank=True)
     tableauVarLog = models.FloatField(null=True, blank=True)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="administre",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -415,6 +727,22 @@ class InputCompteCheque(TimestampedModel):
     cumul = models.BigIntegerField()
     tableauLog = models.FloatField(null=True, blank=True)
     tableauVarLog = models.FloatField(null=True, blank=True)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="administre",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -433,6 +761,22 @@ class InputCompteLivret(TimestampedModel):
     cumul = models.BigIntegerField()
     tableauLog = models.FloatField(null=True, blank=True)
     tableauVarLog = models.FloatField(null=True, blank=True)
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="administre",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_CORE
@@ -451,6 +795,22 @@ class InputAvanceBeac(TimestampedModel):
     taux = models.FloatField()
     interets = models.BigIntegerField()
     montant_total_rembourse = models.BigIntegerField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="administre",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA
@@ -472,6 +832,22 @@ class InputEmpruntTitre(TimestampedModel):
     interet = models.BigIntegerField()
     tva = models.BigIntegerField()
     montant_total_rembourse = models.BigIntegerField()
+    devise = models.CharField(
+        max_length=3, default="XAF",
+        help_text="Code ISO 4217 de la devise (ex: XAF, EUR, USD). Alimenté depuis Flexcube champ CCY."
+    )
+    type_taux = models.CharField(
+        max_length=16, choices=TYPE_TAUX_CHOICES, default="fixe",
+        help_text="Type de taux d'intérêt — utilisé pour l'analyse du basis risk."
+    )
+    business_unit = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Business Unit / Direction (ex: Retail, Corporate, Trésorerie, Institutionnel)."
+    )
+    secteur = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Secteur économique du client (classification NACE ou locale)."
+    )
 
     history = HistoricalRecords()
     CATEGORY = CATEGORY_EXTRA

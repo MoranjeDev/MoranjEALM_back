@@ -6,9 +6,9 @@ from .models import Assumption, AssumptionVersion, ScenarioLibrary
 
 @admin.register(Assumption)
 class AssumptionAdmin(admin.ModelAdmin):
-    list_display = ("code", "label", "category", "owner", "updated_at")
-    list_filter = ("category",)
-    search_fields = ("code", "label", "description")
+    list_display = ("code", "label", "category", "owner", "requires_approval", "updated_at")
+    list_filter = ("category", "requires_approval")
+    search_fields = ("code", "label", "description", "calculation_notes")
 
 
 @admin.register(AssumptionVersion)

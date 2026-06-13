@@ -17,12 +17,17 @@ from weasyprint import HTML
 
 from apps.analytics.concentration import compute_concentration
 from apps.analytics.eve import compute_eve_sensitivity
+from apps.analytics.eve_enriched import compute_eve_enriched
 from apps.analytics.nii import compute_nii_sensitivity
 from apps.engine.lcr import compute_lcr_all
 from apps.engine.rate_gap import compute_rate_gap
+from apps.engine.scenario_analysis import compute_scenario_analysis
 from apps.engine.synthesis import build_charts_payload, compute_synthesis
 from apps.multicurrency.services import compute_positions_by_currency
 from apps.parameters.models import Parameter
+
+from .models import ReportAnnotation
+from .versioning import report_version_snapshot
 
 
 REPORTS: dict[str, dict[str, str]] = {
@@ -32,8 +37,20 @@ REPORTS: dict[str, dict[str, str]] = {
     "charts": {"title": "Graphes ALM", "permission": "Graphes"},
     "nii": {"title": "NII Sensitivity", "permission": "NII Sensitivity"},
     "eve": {"title": "EVE Sensitivity", "permission": "EVE Sensitivity"},
+    "scenario_analysis": {"title": "Scenario Analysis", "permission": "Résultats"},
     "concentration": {"title": "Concentration", "permission": "Concentration"},
     "multicurrency": {"title": "Multi-devises", "permission": "Multi-devises"},
+}
+
+REPORT_ANNOTATION_SCOPES: dict[str, tuple[str, str]] = {
+    "synthesis": ("synthesis", "scenario"),
+    "lcr": ("lcr", ""),
+    "rate_gap": ("rate_gap", ""),
+    "nii": ("nii", ""),
+    "eve": ("eve", ""),
+    "scenario_analysis": ("scenario_analysis", ""),
+    "concentration": ("concentration", ""),
+    "multicurrency": ("multicurrency", ""),
 }
 
 SYNTHESIS_ROW_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
@@ -210,6 +227,12 @@ def _client_brand_html(bank_name: str, bank_logo: str) -> str:
     return f'<div class="client-brand">{logo}{name}</div>'
 
 
+def _public_user_label(user_label: str) -> str:
+    """Nettoie le libellé utilisateur affiché dans les PDF client."""
+    cleaned = (user_label or "").replace("MoranjEALM", "").strip(" -—")
+    return cleaned or "Utilisateur"
+
+
 def get_report_payload(report_type: str, params: dict[str, Any]) -> tuple[str, Any]:
     scenario = params.get("scenario", "base")
     if scenario not in ("base", "modere", "severe"):
@@ -227,7 +250,17 @@ def get_report_payload(report_type: str, params: dict[str, Any]) -> tuple[str, A
         horizon = int(params.get("horizon_days", 365))
         return f"{REPORTS[report_type]['title']} - {horizon} jours", compute_nii_sensitivity(horizon_days=horizon)
     if report_type == "eve":
-        return REPORTS[report_type]["title"], compute_eve_sensitivity()
+        payload = compute_eve_sensitivity()
+        try:
+            payload["enriched"] = compute_eve_enriched()
+        except Exception as exc:  # noqa: BLE001
+            payload["enriched_error"] = str(exc)
+        return REPORTS[report_type]["title"], payload
+    if report_type == "scenario_analysis":
+        mode = str(params.get("balance_sheet_mode") or "static").lower()
+        if mode not in ("static", "dynamic"):
+            mode = "static"
+        return f"{REPORTS[report_type]['title']} - {mode}", compute_scenario_analysis(mode)
     if report_type == "concentration":
         n = int(params.get("n", 20))
         return f"{REPORTS[report_type]['title']} - top {n}", compute_concentration(n=n)
@@ -603,6 +636,85 @@ def _render_eve_delta_svg(data: dict[str, Any]) -> str:
       <g>{''.join(value_labels)}</g>
       <g>{labels_svg}</g>
     </svg>
+    """
+
+
+def _render_eve_enriched_pdf(enriched: dict[str, Any] | None, error: str | None = None) -> str:
+    if error:
+        return f"""
+        <section class="nii-table-stack">
+          <div class="nii-table-block">
+            <div class="section-title"><h2>EVE enrichi — IRRBB</h2><span>Lecture par bucket non disponible</span></div>
+            <p>{html.escape(error)}</p>
+          </div>
+        </section>
+        """
+    if not enriched:
+        return ""
+
+    scenarios = [
+        (code, item.get("label") or code)
+        for code, item in (enriched.get("scenarios") or {}).items()
+        if code != "base"
+    ]
+    scenario_headers = "".join(f"<th>{html.escape(str(label))}</th>" for _code, label in scenarios)
+    col_count = len(scenarios) + 3
+
+    matrix_rows = []
+    for row in enriched.get("bucket_summary") or []:
+        max_delta = float(row.get("max_delta_eve") or 0)
+        cells = [
+            f'<td class="label">{html.escape(str(row.get("label") or "-"))}</td>',
+            f'<td class="num strong {"neg" if max_delta < 0 else "pos"}>{html.escape(_fmt_mfcfa(max_delta))}</td>',
+        ]
+        deltas = row.get("delta_eve_by_scenario") or {}
+        for code, _label in scenarios:
+            value = float(deltas.get(code) or 0)
+            cells.append(f'<td class="num {"neg" if value < 0 else "pos"}>{html.escape(_fmt_mfcfa(value))}</td>')
+        status = "Breach" if row.get("breach") else "OK"
+        cells.append(f'<td class="num strong {"neg" if row.get("breach") else "pos"}>{html.escape(status)}</td>')
+        matrix_rows.append(f"<tr>{''.join(cells)}</tr>")
+
+    breach_rows = []
+    for row in enriched.get("breaches") or []:
+        breach_rows.append(
+            "<tr>"
+            f'<td class="label">{html.escape(str(row.get("label") or "-"))}</td>'
+            f'<td>{html.escape(str(row.get("scenario_label") or row.get("scenario") or "-"))}</td>'
+            f'<td class="num strong neg">{html.escape(_fmt_mfcfa(row.get("delta_eve")))}</td>'
+            f'<td class="num strong neg">{html.escape(_fmt_rate_value(row.get("pct_tier1")))}</td>'
+            f'<td>{html.escape(str(row.get("severity") or "-"))}</td>'
+            "</tr>"
+        )
+
+    breaches_html = (
+        f"""
+        <table class="nii-table compact">
+          <thead><tr><th class="label-col">Bucket</th><th>Scenario</th><th>Delta EVE</th><th>% Tier 1</th><th>Severite</th></tr></thead>
+          <tbody>{''.join(breach_rows)}</tbody>
+        </table>
+        """
+        if breach_rows
+        else '<p class="pos"><b>Aucun bucket ne dépasse le seuil IRRBB paramétré.</b></p>'
+    )
+
+    return f"""
+    <section class="nii-table-stack">
+      <div class="nii-table-block">
+        <div class="section-title">
+          <h2>Matrice EVE Bucket × Scenario</h2>
+          <span>Hors-bilan {'inclus' if enriched.get('off_balance_included') else 'exclu'} — seuil {html.escape(_fmt_rate_value(enriched.get('breach_threshold_pct')))} Tier 1</span>
+        </div>
+        <table class="nii-table compact">
+          <thead><tr><th class="label-col">Bucket</th><th>Pire Delta EVE</th>{scenario_headers}<th>Statut</th></tr></thead>
+          <tbody>{''.join(matrix_rows) if matrix_rows else f'<tr><td colspan="{col_count}">Aucune donnée EVE enrichie.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="nii-table-block">
+        <div class="section-title"><h2>Breaches IRRBB</h2><span>{int(enriched.get('nb_breaches') or 0)} dépassement(s)</span></div>
+        {breaches_html}
+      </div>
+    </section>
     """
 
 
@@ -1277,6 +1389,7 @@ def _render_eve_pdf(data: dict[str, Any]) -> str:
     scenarios = list(data.get("scenarios", []))
     products = list(data.get("base_by_product", []))
     buckets = list(data.get("base_by_bucket", []))
+    enriched_html = _render_eve_enriched_pdf(data.get("enriched"), data.get("enriched_error"))
     worst = data.get("worst_case") or min(scenarios, key=lambda item: float(item.get("delta_eve") or 0), default={})
     eve_ratio = (base_eve / base_pv_assets * 100) if base_pv_assets else 0
     asset_count = sum(1 for item in products if item.get("side") == "asset")
@@ -1430,6 +1543,7 @@ def _render_eve_pdf(data: dict[str, Any]) -> str:
         </table>
       </div>
     </section>
+    {enriched_html}
     """
 
 
@@ -1486,23 +1600,223 @@ def _render_concentration_block(title: str, block: dict[str, Any], top_limit: in
         <strong>{html.escape(str(max_exposure.get("key") or "-"))}</strong>
         <small>{html.escape(_fmt_mfcfa(max_exposure.get("amount")))} M FCFA - {html.escape(_fmt_rate_value(max_exposure.get("share_pct")))}</small>
       </div>
-      <div class="concentration-two-cols">
-        <div class="concentration-table-card">
-          <div class="section-title"><h2>Ventilation par type</h2><span>Montants en M FCFA</span></div>
-          <table class="concentration-table breakdown-table">
-            <colgroup><col style="width: 38%" /><col style="width: 20%" /><col style="width: 14%" /><col style="width: 28%" /></colgroup>
-            <thead><tr><th>Type</th><th>Montant</th><th>Part</th><th>Poids</th></tr></thead>
-            <tbody>{''.join(type_rows) if type_rows else '<tr><td colspan="4">Aucune donnee</td></tr>'}</tbody>
-          </table>
+      <div class="concentration-table-card concentration-breakdown-card">
+        <div class="section-title"><h2>Ventilation par type</h2><span>Montants en M FCFA</span></div>
+        <table class="concentration-table breakdown-table">
+          <colgroup><col style="width: 38%" /><col style="width: 20%" /><col style="width: 14%" /><col style="width: 28%" /></colgroup>
+          <thead><tr><th>Type</th><th>Montant</th><th>Part</th><th>Poids</th></tr></thead>
+          <tbody>{''.join(type_rows) if type_rows else '<tr><td colspan="4">Aucune donnee</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="concentration-top-section">
+      <div class="section-title"><h2>Top positions - {html.escape(title)}</h2><span>Top {top_limit}</span></div>
+      <table class="concentration-table top-table">
+        <colgroup><col style="width: 7%" /><col style="width: 43%" /><col style="width: 24%" /><col style="width: 16%" /><col style="width: 10%" /></colgroup>
+        <thead><tr><th>#</th><th>Référence / contrepartie</th><th>Type</th><th>Montant</th><th>Part</th></tr></thead>
+        <tbody>{''.join(top_rows) if top_rows else '<tr><td colspan="5">Aucune donnee</td></tr>'}</tbody>
+      </table>
+    </section>
+    """
+
+
+def _render_scenario_curve_svg(data: dict[str, Any], scenario: str) -> str:
+    curves = data.get("liquidity_curves", {})
+    curve = curves.get(scenario) or next(iter(curves.values()), {})
+    buckets = [str(v) for v in curve.get("buckets", [])]
+    net = [float(v or 0) for v in curve.get("net_funding", [])]
+    cumulative = [float(v or 0) for v in curve.get("cumulative_net_funding", [])]
+    width, height = 1040, 285
+    left, right, top, bottom = 76, 28, 26, 64
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    minimum, maximum = _chart_bounds([net, cumulative, [0.0]])
+    count = max(len(buckets), 1)
+    slot = plot_w / count
+    bar_w = min(34, slot * 0.48)
+
+    def y_pos(value: float) -> float:
+        return _chart_y(value, minimum, maximum, top, plot_h)
+
+    zero_y = y_pos(0)
+    grid = []
+    for tick in _chart_ticks(minimum, maximum):
+        y = y_pos(tick)
+        grid.append(
+            f'<line x1="{left}" y1="{_svg_num(y)}" x2="{width - right}" y2="{_svg_num(y)}" stroke="#DDE7F1" stroke-width="1"/>'
+            f'<text x="{left - 10}" y="{_svg_num(y + 4)}" text-anchor="end" class="axis-label">{html.escape(_svg_label(tick))}</text>'
+        )
+
+    bars = []
+    for index, value in enumerate(net):
+        x = left + slot * index + (slot - bar_w) / 2
+        y = y_pos(value)
+        rect_y = min(y, zero_y)
+        rect_h = max(abs(zero_y - y), 1)
+        color = "#B42318" if value < 0 else "#002E5F"
+        bars.append(
+            f'<rect x="{_svg_num(x)}" y="{_svg_num(rect_y)}" width="{_svg_num(bar_w)}" height="{_svg_num(rect_h)}" rx="3" fill="{color}" opacity="0.78"/>'
+        )
+
+    line_points = []
+    dots = []
+    for index, value in enumerate(cumulative):
+        x = left + slot * index + slot / 2
+        y = y_pos(value)
+        line_points.append(f"{_svg_num(x)},{_svg_num(y)}")
+        dots.append(f'<circle cx="{_svg_num(x)}" cy="{_svg_num(y)}" r="3" fill="#FF4B18" stroke="#FFFFFF" stroke-width="1.1"/>')
+
+    labels = "".join(
+        f'<text x="{_svg_num(left + slot * i + slot / 2)}" y="{height - 22}" text-anchor="end" transform="rotate(-20 {_svg_num(left + slot * i + slot / 2)} {height - 22})" class="bucket-label">{html.escape(bucket)}</text>'
+        for i, bucket in enumerate(buckets)
+    )
+
+    return f"""
+    <svg class="rate-chart-svg" width="100%" height="100%" viewBox="0 0 {width} {height}" preserveAspectRatio="none" role="img">
+      <rect x="0" y="0" width="{width}" height="{height}" rx="12" fill="#FFFFFF"/>
+      <g>{''.join(grid)}</g>
+      <line x1="{left}" y1="{_svg_num(zero_y)}" x2="{width - right}" y2="{_svg_num(zero_y)}" stroke="#8FA3B8" stroke-width="1"/>
+      <g>{''.join(bars)}</g>
+      <polyline points="{' '.join(line_points)}" fill="none" stroke="#FF4B18" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
+      <g>{''.join(dots)}</g>
+      <g>{labels}</g>
+    </svg>
+    """
+
+
+def _render_scenario_analysis_pdf(data: dict[str, Any]) -> str:
+    scenarios = list(data.get("scenarios", []))
+    interest = data.get("interest_rate", {})
+    worst_liquidity = min(scenarios, key=lambda item: float(item.get("min_cumulative_gap") or 0), default={})
+    worst_nii = interest.get("worst_nii") or {}
+    worst_eve = interest.get("worst_eve") or {}
+    selected_scenario = str(worst_liquidity.get("scenario") or "severe")
+    mode_label = str(data.get("mode_label") or "Bilan statique")
+
+    def fmt_m(value: Any) -> str:
+        return f"{_fmt_money(value)} M"
+
+    kpis = [
+        ("Mode de bilan", mode_label, str(data.get("mode_note") or "")),
+        ("Point bas liquidite", fmt_m(worst_liquidity.get("min_cumulative_gap")), str(worst_liquidity.get("label") or "-")),
+        ("MCO defavorable", fmt_m(worst_liquidity.get("mco")), str(worst_liquidity.get("mco_label") or "-")),
+        ("Basis risk", str(interest.get("basis_risk_count") or 0), "alertes taux par bucket"),
+    ]
+    kpi_html = "".join(
+        f"""
+        <div class="nii-kpi">
+          <div class="kpi-label">{html.escape(label)}</div>
+          <div class="kpi-value">{html.escape(value)}</div>
+          <div class="kpi-helper">{html.escape(helper)}</div>
         </div>
-        <div class="concentration-table-card">
-          <div class="section-title"><h2>Top positions</h2><span>Top {top_limit}</span></div>
-          <table class="concentration-table top-table">
-            <colgroup><col style="width: 7%" /><col style="width: 37%" /><col style="width: 24%" /><col style="width: 18%" /><col style="width: 14%" /></colgroup>
-            <thead><tr><th>#</th><th>Référence / contrepartie</th><th>Type</th><th>Montant</th><th>Part</th></tr></thead>
-            <tbody>{''.join(top_rows) if top_rows else '<tr><td colspan="5">Aucune donnee</td></tr>'}</tbody>
-          </table>
+        """
+        for label, value, helper in kpis
+    )
+
+    scenario_rows = []
+    for item in scenarios:
+        lcr = item.get("lcr_pct")
+        min_gap = float(item.get("min_cumulative_gap") or 0)
+        mco = float(item.get("mco") or 0)
+        delta = float(item.get("delta_min_cumulative_gap_vs_base") or 0)
+        scenario_rows.append(
+            "<tr>"
+            f'<td class="label">{html.escape(str(item.get("label") or item.get("scenario") or "-"))}</td>'
+            f'<td class="num strong">{html.escape(_fmt_rate_value(lcr) if lcr is not None else "-")}</td>'
+            f'<td class="num strong {"neg" if mco < 0 else "pos"}">{html.escape(fmt_m(mco))}</td>'
+            f'<td class="num strong {"neg" if min_gap < 0 else "pos"}">{html.escape(fmt_m(min_gap))}</td>'
+            f'<td class="num {"neg" if delta < 0 else "pos"}">{html.escape(fmt_m(delta))}</td>'
+            f'<td class="num">{html.escape(str(item.get("negative_buckets") or 0))}</td>'
+            f'<td>{html.escape("Oui" if item.get("off_balance_included") else "Non")}</td>'
+            "</tr>"
+        )
+
+    basis_rows = []
+    for item in list(interest.get("basis_risk_alerts", []))[:8]:
+        basis_rows.append(
+            "<tr>"
+            f'<td class="label">{html.escape(str(item.get("label") or item.get("bucket_code") or "-"))}</td>'
+            f'<td class="num strong">{html.escape(_fmt_point(item.get("max_basis_spread")))}</td>'
+            f'<td>{html.escape(str(item.get("severity") or "-"))}</td>'
+            f'<td>{html.escape(", ".join(item.get("types_present", [])))}</td>'
+            "</tr>"
+        )
+
+    if not basis_rows:
+        basis_rows.append('<tr><td colspan="4" class="label">Aucune alerte de basis risk significative sur les buckets alimentes.</td></tr>')
+
+    return f"""
+    <section class="nii-hero">
+      <div>
+        <div class="eyebrow">Stress testing</div>
+        <h1>Scenario Analysis</h1>
+        <p>Comparaison ALCO des scénarios de liquidite, hors-bilan, LCR, MCO, NII, EVE et basis risk.</p>
+      </div>
+      <div class="hero-meta">
+        <div>{html.escape(str(worst_liquidity.get("label") or "-"))}</div>
+        <small>Point bas : {html.escape(fmt_m(worst_liquidity.get("min_cumulative_gap")))}</small>
+      </div>
+    </section>
+    <section class="nii-summary">
+      <div>
+        <span>Pire choc NII</span>
+        <strong class="{'neg' if float(worst_nii.get('delta_nii') or 0) < 0 else 'pos'}">{html.escape(_fmt_mfcfa(worst_nii.get("delta_nii")))}</strong>
+        <small>{html.escape(str(worst_nii.get("label") or "-"))}</small>
+      </div>
+      <div>
+        <span>Pire choc EVE</span>
+        <strong class="{'neg' if float(worst_eve.get('delta_eve') or 0) < 0 else 'pos'}">{html.escape(_fmt_mfcfa(worst_eve.get("delta_eve")))}</strong>
+        <small>{html.escape(str(worst_eve.get("label") or "-"))}</small>
+      </div>
+      <div>
+        <span>Hypotheses dynamiques</span>
+        <strong>{html.escape("Activees" if data.get("dynamic_assumptions") else "Non appliquees")}</strong>
+        <small>{html.escape(mode_label)}</small>
+      </div>
+    </section>
+    <section class="nii-kpi-grid">{kpi_html}</section>
+    <section class="nii-chart-card">
+      <div class="rate-chart-head">
+        <div>
+          <h2>Courbe de liquidite - scenario defavorable</h2>
+          <p>Barres : gap net par bucket. Ligne : gap net cumule. Montants en M FCFA.</p>
         </div>
+        <div class="rate-chart-legend">
+          <span><i class="spread"></i>Gap net</span>
+          <span><i class="debit"></i>Cumul</span>
+        </div>
+      </div>
+      {_render_scenario_curve_svg(data, selected_scenario)}
+    </section>
+    <section class="nii-table-stack">
+      <div class="nii-table-block">
+        <div class="section-title"><h2>Comparaison des scenarios</h2><span>Montants en millions de FCFA</span></div>
+        <table class="nii-table compact nii-scenario-table">
+          <colgroup>
+            <col style="width: 20%" />
+            <col style="width: 12%" />
+            <col style="width: 14%" />
+            <col style="width: 17%" />
+            <col style="width: 15%" />
+            <col style="width: 11%" />
+            <col style="width: 11%" />
+          </colgroup>
+          <thead><tr><th class="label-col">Scenario</th><th>LCR</th><th>MCO</th><th>Point bas cumule</th><th>Delta vs base</th><th>Buckets neg.</th><th>Hors-bilan</th></tr></thead>
+          <tbody>{''.join(scenario_rows)}</tbody>
+        </table>
+      </div>
+      <div class="nii-table-block">
+        <div class="section-title"><h2>Alertes de basis risk</h2><span>Types de taux multiples par bucket</span></div>
+        <table class="nii-table compact">
+          <colgroup>
+            <col style="width: 28%" />
+            <col style="width: 18%" />
+            <col style="width: 16%" />
+            <col style="width: 38%" />
+          </colgroup>
+          <thead><tr><th class="label-col">Bucket</th><th>Spread max</th><th>Severite</th><th>Types presents</th></tr></thead>
+          <tbody>{''.join(basis_rows)}</tbody>
+        </table>
       </div>
     </section>
     """
@@ -1513,7 +1827,7 @@ def _render_concentration_pdf(data: dict[str, Any]) -> str:
     deposits = data.get("deposits") or {}
     assets = data.get("assets") or {}
     top_n = int(data.get("n") or 20)
-    display_top = min(top_n, 10)
+    display_top = max(1, top_n)
     deposits_hhi = float(deposits.get("hhi") or 0)
     assets_hhi = float(assets.get("hhi") or 0)
     worst_label, worst_block = ("Depots", deposits) if deposits_hhi >= assets_hhi else ("Actifs", assets)
@@ -1801,14 +2115,108 @@ def _render_table(title: str, value: Any, depth: int = 0) -> str:
     return f"<section class='block depth-{depth}'><h2>{html.escape(title)}</h2><p>{_fmt(value)}</p></section>"
 
 
+def _annotation_scope_for_report(report_type: str, params: dict[str, Any]) -> tuple[str, str] | None:
+    scope = REPORT_ANNOTATION_SCOPES.get(report_type)
+    if not scope:
+        return None
+    section, scenario_source = scope
+    if scenario_source == "scenario":
+        scenario = str(params.get("scenario") or "base")
+        if scenario not in ("base", "modere", "severe"):
+            scenario = "base"
+    else:
+        scenario = scenario_source
+    return section, scenario
+
+
+def _render_report_annotation(report_type: str, params: dict[str, Any]) -> str:
+    scope = _annotation_scope_for_report(report_type, params)
+    if not scope:
+        return ""
+    section, scenario = scope
+    annotation = (
+        ReportAnnotation.objects
+        .select_related("created_by")
+        .filter(section=section, scenario=scenario)
+        .order_by("-created_at")
+        .first()
+    )
+    if not annotation or not annotation.body:
+        return ""
+
+    author = annotation.created_by.get_full_name() if annotation.created_by else ""
+    author = author or (annotation.created_by.get_username() if annotation.created_by else "Utilisateur")
+    date_label = annotation.created_at.strftime("%d/%m/%Y %H:%M")
+    scope_label = f"{section}{' / ' + scenario if scenario else ''}"
+    title = annotation.title or "Commentaire de lecture"
+    body = html.escape(annotation.body).replace("\n", "<br />")
+
+    return f"""
+    <section class="pdf-annotation-card">
+      <div class="section-title">
+        <h2>{html.escape(title)}</h2>
+        <span>{html.escape(scope_label)} - {html.escape(author)} - {html.escape(date_label)}</span>
+      </div>
+      <p>{body}</p>
+    </section>
+    """
+
+
+def _render_model_versioning_pdf(report_type: str, params: dict[str, Any]) -> str:
+    snapshot = report_version_snapshot(report_type, params)
+    assumptions = snapshot.get("assumptions") or []
+    scenarios = snapshot.get("scenarios") or []
+    assumption_rows = []
+    for row in assumptions[:8]:
+        assumption_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row.get('code') or '-'))}</td>"
+            f"<td>{html.escape(str(row.get('category') or '-'))}</td>"
+            f"<td class=\"num\">v{html.escape(str(row.get('version') or '-'))}</td>"
+            f"<td class=\"num\">{html.escape(str(row.get('value') or '-'))}</td>"
+            f"<td>{html.escape(str(row.get('activated_at') or '-'))}</td>"
+            "</tr>"
+        )
+    if not assumption_rows:
+        assumption_rows.append("<tr><td colspan=\"5\">Aucune hypothèse active trouvée.</td></tr>")
+
+    scenario_labels = ", ".join(
+        f"{item.get('label') or item.get('code')} ({item.get('scope')})"
+        for item in scenarios[:6]
+    ) or "Aucun scénario actif trouvé"
+    more_assumptions = max(int(snapshot.get("assumptions_count") or 0) - 8, 0)
+    more_label = f" + {more_assumptions} autre(s)" if more_assumptions else ""
+
+    return f"""
+    <section class="pdf-version-card">
+      <div class="section-title">
+        <h2>Version modele et hypotheses</h2>
+        <span>Empreinte {html.escape(str(snapshot.get('assumptions_digest') or '-'))}</span>
+      </div>
+      <div class="version-kpis">
+        <div><span>Version application</span><b>{html.escape(str(snapshot.get('app_version') or '-'))}</b></div>
+        <div><span>Contexte rapport</span><b>{html.escape(str(snapshot.get('requested_scenario') or '-'))}</b></div>
+        <div><span>Hypotheses actives</span><b>{int(snapshot.get('assumptions_count') or 0)}</b></div>
+        <div><span>Scenarios actifs</span><b>{int(snapshot.get('scenarios_count') or 0)}</b></div>
+      </div>
+      <table class="version-table">
+        <thead><tr><th>Hypothese</th><th>Categorie</th><th>Version</th><th>Valeur</th><th>Activation</th></tr></thead>
+        <tbody>{''.join(assumption_rows)}</tbody>
+      </table>
+      <p class="version-scenarios"><b>Scenarios actifs :</b> {html.escape(scenario_labels)}{html.escape(more_label)}</p>
+    </section>
+    """
+
+
 def build_report_pdf(report_type: str, params: dict[str, Any], user_label: str) -> bytes:
     report_title, payload = get_report_payload(report_type, params)
     generated_at = datetime.now()
     bank_name, bank_logo = _bank_branding()
+    public_user_label = _public_user_label(user_label)
     footer_text = (
-        f"{bank_name} - {user_label} - {generated_at:%d/%m/%Y %H:%M}"
+        f"{bank_name} - {public_user_label} - {generated_at:%d/%m/%Y %H:%M}"
         if bank_name
-        else f"{user_label} - {generated_at:%d/%m/%Y %H:%M}"
+        else f"{public_user_label} - {generated_at:%d/%m/%Y %H:%M}"
     )
     if report_type == "synthesis":
         body = _render_synthesis_pdf(payload)
@@ -1822,15 +2230,20 @@ def build_report_pdf(report_type: str, params: dict[str, Any], user_label: str) 
         body = _render_nii_pdf(payload)
     elif report_type == "eve":
         body = _render_eve_pdf(payload)
+    elif report_type == "scenario_analysis":
+        body = _render_scenario_analysis_pdf(payload)
     elif report_type == "concentration":
         body = _render_concentration_pdf(payload)
     elif report_type == "multicurrency":
         body = _render_multicurrency_pdf(payload)
     else:
         body = _render_table(report_title, payload)
-    cover_heading = "" if report_type in ("synthesis", "charts", "lcr", "rate_gap", "nii", "eve", "concentration", "multicurrency") else f"<h1>{html.escape(report_title)}</h1>"
+    body += _render_report_annotation(report_type, params)
+    body += _render_model_versioning_pdf(report_type, params)
+    designed_reports = ("synthesis", "charts", "lcr", "rate_gap", "nii", "eve", "scenario_analysis", "concentration", "multicurrency")
+    cover_heading = "" if report_type in designed_reports else f"<h1>{html.escape(report_title)}</h1>"
     logo_watermark = ""
-    if report_type in ("synthesis", "charts", "lcr", "rate_gap", "nii", "eve", "concentration", "multicurrency"):
+    if report_type in designed_reports:
         logo_uri = _logo_watermark_data_uri()
         if logo_uri:
             logo_watermark = f'<img class="pdf-logo-watermark" src="{logo_uri}" alt="" />'
@@ -2588,6 +3001,15 @@ table.mc-gap-table tr.total-all td {{
   border-radius: 12px;
   background: rgba(255,255,255,0.96);
 }}
+.concentration-top-section {{
+  page-break-before: always;
+  page-break-inside: avoid;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #D8E1EA;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.96);
+}}
 .concentration-block-head {{
   display: table;
   width: 100%;
@@ -2680,6 +3102,10 @@ table.mc-gap-table tr.total-all td {{
   background: #FFFFFF;
   vertical-align: top;
 }}
+.concentration-breakdown-card {{
+  display: block;
+  width: 58%;
+}}
 table.concentration-table {{
   margin: 0;
   table-layout: fixed;
@@ -2689,6 +3115,7 @@ table.concentration-table th,
 table.concentration-table td {{
   border: 1px solid #DDE7F1;
   padding: 6.2px 6.4px;
+  page-break-inside: avoid;
 }}
 table.concentration-table thead th {{
   color: #002E5F;
@@ -2716,6 +3143,13 @@ table.concentration-table td.rank {{
 .top-table td:nth-child(2),
 .top-table td:nth-child(3) {{
   line-height: 1.22;
+}}
+.concentration-top-section table.concentration-table {{
+  font-size: 9.2px;
+}}
+.concentration-top-section table.concentration-table th,
+.concentration-top-section table.concentration-table td {{
+  padding: 7px 7.5px;
 }}
 .mini-bar {{
   display: block;
@@ -2917,6 +3351,82 @@ table.concentration-table td.rank {{
   color: #6B7280;
   font-size: 9px;
   margin-top: 2px;
+}}
+.pdf-annotation-card {{
+  margin-top: 12px;
+  border: 1px solid #D8E1EA;
+  border-left: 4px solid #FF4B18;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.96);
+  page-break-inside: avoid;
+}}
+.pdf-annotation-card p {{
+  margin: 0;
+  padding: 11px 12px 12px;
+  color: #172033;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: normal;
+}}
+.pdf-version-card {{
+  margin-top: 12px;
+  border: 1px solid #D8E1EA;
+  border-left: 4px solid #002E5F;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.96);
+  page-break-inside: avoid;
+}}
+.version-kpis {{
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  border-spacing: 8px 0;
+  margin: 10px -8px 8px;
+  padding: 0 12px;
+  box-sizing: border-box;
+}}
+.version-kpis div {{
+  display: table-cell;
+  padding: 8px;
+  border: 1px solid #DDE7F1;
+  border-radius: 9px;
+  background: #F8FBFE;
+}}
+.version-kpis span {{
+  display: block;
+  color: #5D6B7D;
+  font-size: 8px;
+  font-weight: 900;
+  text-transform: uppercase;
+}}
+.version-kpis b {{
+  display: block;
+  margin-top: 3px;
+  color: #002E5F;
+  font-size: 13px;
+}}
+.version-table {{
+  width: calc(100% - 24px);
+  margin: 8px 12px;
+  border-collapse: collapse;
+  font-size: 8.6px;
+}}
+.version-table th,
+.version-table td {{
+  border: 1px solid #DDE7F1;
+  padding: 5px 6px;
+}}
+.version-table th {{
+  background: #EEF5FC;
+  color: #002E5F;
+}}
+.version-scenarios {{
+  margin: 0;
+  padding: 0 12px 12px;
+  color: #5D6B7D;
+  font-size: 9px;
 }}
 table.synthesis-table {{
   margin: 0;
@@ -3242,7 +3752,7 @@ table.nii-table .pos {{ color: #166534; }}
     <header class="cover">
       <div class="cover-top">
         {client_brand}
-        <div class="report-meta">Rapport genere le {generated_at:%d/%m/%Y a %H:%M} - Utilisateur : {html.escape(user_label)}</div>
+        <div class="report-meta">Rapport genere le {generated_at:%d/%m/%Y a %H:%M} - Utilisateur : {html.escape(public_user_label)}</div>
       </div>
       {cover_heading}
     </header>

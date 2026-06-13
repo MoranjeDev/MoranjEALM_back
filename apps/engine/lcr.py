@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.governance.services import get_assumption_value
+from .lineage import report_lineage
 from .synthesis import SCENARIOS, compute_synthesis
 
 
@@ -159,6 +160,7 @@ def _compute_one(scenario: str) -> dict:
 
     return {
         **data,
+        "lineage": report_lineage("lcr", scenario=scenario),
         "components": components,
         "hqla": _block([components["cash"], components["central_bank"], components["sovereign"], components["opcvm"]]),
         "inflows": _block([components["financial_inflows"], components["retail_inflows"]]),

@@ -64,6 +64,20 @@ class Assumption(models.Model):
         blank=True, default="",
         help_text="Sources de données utilisées (historique, études, etc.).",
     )
+    impacted_modules = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Modules et rapports impactés par l'hypothèse.",
+    )
+    calculation_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="Explication métier de l'utilisation de l'hypothèse dans les calculs.",
+    )
+    requires_approval = models.BooleanField(
+        default=True,
+        help_text="Impose le circuit maker-checker avant activation opérationnelle.",
+    )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -163,6 +177,7 @@ class AssumptionVersion(models.Model):
 
     @transition(field=state, source=STATE_REVIEW, target=STATE_APPROVED)
     def approve(self, user):
+        self.checker = user
         self.approver = user
         self.approved_at = timezone.now()
 
@@ -173,6 +188,8 @@ class AssumptionVersion(models.Model):
 
     @transition(field=state, source=STATE_APPROVED, target=STATE_ACTIVE)
     def activate(self, user):
+        if self.approver_id is None:
+            self.approver = user
         self.activated_at = timezone.now()
         # Met automatiquement à la retraite la version active précédente
         AssumptionVersion.objects.filter(

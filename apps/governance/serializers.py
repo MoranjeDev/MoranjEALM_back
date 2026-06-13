@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .impact import assumption_impact_preview
 from .models import Assumption, AssumptionVersion, ScenarioLibrary
 
 
@@ -8,6 +9,10 @@ class AssumptionVersionSerializer(serializers.ModelSerializer):
     checker_name = serializers.CharField(source="checker.username", read_only=True)
     approver_name = serializers.CharField(source="approver.username", read_only=True)
     state_label = serializers.CharField(source="get_state_display", read_only=True)
+    impact_preview = serializers.SerializerMethodField()
+
+    def get_impact_preview(self, obj):
+        return assumption_impact_preview(obj)
 
     class Meta:
         model = AssumptionVersion
@@ -16,6 +21,7 @@ class AssumptionVersionSerializer(serializers.ModelSerializer):
             "state", "state_label", "rationale", "rejection_reason",
             "maker", "maker_name", "checker", "checker_name",
             "approver", "approver_name",
+            "impact_preview",
             "effective_from", "effective_to",
             "created_at", "submitted_at", "approved_at", "activated_at", "retired_at",
         ]
@@ -36,6 +42,7 @@ class AssumptionSerializer(serializers.ModelSerializer):
         fields = [
             "id", "code", "label", "category", "description",
             "owner", "owner_name", "methodology", "sources",
+            "impacted_modules", "calculation_notes", "requires_approval",
             "active_version", "versions",
             "created_at", "updated_at",
         ]

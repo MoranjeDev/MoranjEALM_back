@@ -9,8 +9,8 @@ django-filter==24.2
 
 # Auth
 djangorestframework-simplejwt==5.3.1
-django-auth-ldap==4.8.0
-python-ldap==3.4.4
+# LDAP n'est pas installe dans le profil SQLite de test afin d'economiser le
+# quota disque PythonAnywhere. A remettre seulement si LDAP_SERVER_URI est actif.
 
 # OpenAPI / Swagger
 drf-spectacular==0.27.2
@@ -47,3 +47,4 @@ python-pptx==0.6.23
 
 # Licence
 cryptography==42.0.7
+requests==2.32.3

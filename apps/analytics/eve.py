@@ -20,6 +20,12 @@ import pandas as pd
 from django.utils import timezone
 
 from apps.engine.buckets import build_buckets
+from apps.engine.lineage import report_lineage
+from apps.engine.rate_behavior import (
+    effective_shift_decimal,
+    rate_behavior_for_input,
+    summarize_rate_behaviors,
+)
 from apps.governance.services import get_assumption_value
 from apps.parameters.models import Parameter
 from .nii import (
@@ -81,6 +87,7 @@ def _collect():
                 "amount": float(getattr(obj, amount_field) or 0),
                 "rate": float(getattr(obj, rate_field) or 0) / 100.0,
                 "maturity": getattr(obj, date_field),
+                "rate_behavior": rate_behavior_for_input(label, obj),
             })
     for model_cls, label, amount_field, rate_field, date_field in LIABILITIES_RATE_INPUTS:
         for obj in model_cls.objects.all():
@@ -89,12 +96,17 @@ def _collect():
                 "amount": float(getattr(obj, amount_field) or 0),
                 "rate": float(getattr(obj, rate_field) or 0) / 100.0,
                 "maturity": getattr(obj, date_field),
+                "rate_behavior": rate_behavior_for_input(label, obj),
             })
     return rows
 
 
 def _bucket_label(maturity, ref) -> str:
     buckets = build_buckets(ref)
+    return _bucket_label_from_buckets(maturity, buckets)
+
+
+def _bucket_label_from_buckets(maturity, buckets) -> str:
     if maturity is None:
         return "Non maturé"
     maturity_dt = _aware_datetime(maturity)
@@ -123,11 +135,13 @@ def _eve_for_scenario(positions, scenario: NIIScenario, ref: datetime) -> dict:
     pv_assets = 0.0
     pv_liabs = 0.0
     product_rows: dict[tuple[str, str], dict] = {}
-    bucket_labels = [bucket.label for bucket in build_buckets(ref)] + ["Non maturé", "Au-delà"]
+    maturity_buckets = build_buckets(ref)
+    bucket_labels = [bucket.label for bucket in maturity_buckets] + ["Non maturé", "Au-delà"]
     bucket_rows = {
         label: {"bucket": label, "pv_assets": 0.0, "pv_liabilities": 0.0, "eve": 0.0}
         for label in bucket_labels
     }
+    rate_floor = get_assumption_value("eve_rate_floor_pct", -1.0) / 100.0
 
     for p in positions:
         if p["amount"] == 0:
@@ -136,8 +150,9 @@ def _eve_for_scenario(positions, scenario: NIIScenario, ref: datetime) -> dict:
         if p["maturity"] is not None and t <= 0:
             continue
         shift = _scenario_shift(scenario, t)
-        rate_floor = get_assumption_value("eve_rate_floor_pct", -1.0) / 100.0
-        rate = max(p["rate"] + shift, rate_floor)
+        behavior = p.get("rate_behavior") or rate_behavior_for_input(p["label"])
+        effective_shift = effective_shift_decimal(shift, t, behavior)
+        rate = max(p["rate"] + effective_shift, rate_floor)
         df = math.exp(-rate * t)
         pv = p["amount"] * df
         duration = t * pv
@@ -149,15 +164,24 @@ def _eve_for_scenario(positions, scenario: NIIScenario, ref: datetime) -> dict:
             "pv": 0.0,
             "avg_rate_amount": 0.0,
             "weighted_duration": 0.0,
+            "behavior_amount": 0.0,
+            "behavior_weighted_lag": 0.0,
+            "behavior_weighted_pass_through": 0.0,
+            "behavior_sources": set(),
         })
         product["amount"] += p["amount"]
         product["pv"] += pv
         product["avg_rate_amount"] += p["amount"] * rate
         product["weighted_duration"] += duration
+        product["behavior_amount"] += p["amount"]
+        product["behavior_weighted_lag"] += p["amount"] * behavior.repricing_lag_months
+        product["behavior_weighted_pass_through"] += p["amount"] * behavior.pass_through_pct
+        product["behavior_sources"].add(behavior.source if not behavior.param_code else behavior.param_code)
 
+        bucket_name = _bucket_label_from_buckets(p["maturity"], maturity_buckets)
         bucket = bucket_rows.setdefault(
-            _bucket_label(p["maturity"], ref),
-            {"bucket": _bucket_label(p["maturity"], ref), "pv_assets": 0.0, "pv_liabilities": 0.0, "eve": 0.0},
+            bucket_name,
+            {"bucket": bucket_name, "pv_assets": 0.0, "pv_liabilities": 0.0, "eve": 0.0},
         )
         if p["side"] == "asset":
             pv_assets += pv
@@ -177,6 +201,9 @@ def _eve_for_scenario(positions, scenario: NIIScenario, ref: datetime) -> dict:
             "pv": round(item["pv"], 2),
             "avg_rate": round(avg_rate, 2),
             "duration_years": round(duration, 2),
+            "repricing_lag_months": round(item["behavior_weighted_lag"] / item["behavior_amount"], 2) if item["behavior_amount"] else 0.0,
+            "pass_through_pct": round(item["behavior_weighted_pass_through"] / item["behavior_amount"], 2) if item["behavior_amount"] else 100.0,
+            "behavioral_sources": sorted(item["behavior_sources"]),
         })
 
     by_bucket = []
@@ -222,11 +249,13 @@ def compute_eve_sensitivity() -> dict:
 
     return {
         "reference_date": ref.isoformat(),
+        "lineage": report_lineage("eve"),
         "base_eve": base_eve,
         "base_pv_assets": base["pv_assets"],
         "base_pv_liabilities": base["pv_liabilities"],
         "base_by_product": base["by_product"],
         "base_by_bucket": base["by_bucket"],
+        "rate_behavior_summary": summarize_rate_behaviors(positions),
         "scenarios": scenarios,
         "worst_case": worst_loss,
         "worst_abs_case": worst_abs,

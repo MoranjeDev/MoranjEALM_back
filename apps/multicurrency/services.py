@@ -11,10 +11,12 @@ from collections import defaultdict
 from datetime import date
 
 import pandas as pd
+from django.db.models import Sum
 from django.utils import timezone
 
 from apps.engine.buckets import build_buckets, NB_BUCKETS
 from apps.inputs import models as M
+from apps.balance_sheet.models import BalanceSheetLine
 from apps.mapping.models import Currency, FxRate, OffBalanceCommitment
 from apps.parameters.models import Parameter
 
@@ -28,6 +30,14 @@ CURRENCY_INPUTS = [
     (M.InputPretInterBanc,  "devise",   "solde",            "maturite",          "actif"),
     (M.InputTabAmort,       "devise",   "montant_echeance", "date_echeance",     "actif"),
 ]
+
+COMMON_FX_FALLBACK_RATES = {
+    # Fallback de demo pour les templates de test. Les taux saisis/importes
+    # dans FxRate ou deduits du bilan GL restent toujours prioritaires.
+    "EUR": 655.957,
+    "USD": 600.0,
+    "GBP": 770.0,
+}
 
 
 def _normalize_ccy(raw: str | None) -> str:
@@ -45,8 +55,39 @@ def _fx_rate(ccy: str, ref: date) -> tuple[float, bool]:
         return 1.0, False
     qs = FxRate.objects.filter(currency__code=ccy, date__lte=ref).order_by("-date").first()
     if qs is None:
+        implied = _implied_fx_rate_from_balance_sheet(ccy, ref)
+        if implied:
+            return implied, False
+        fallback = COMMON_FX_FALLBACK_RATES.get(ccy)
+        if fallback:
+            return fallback, False
         return 1.0, True
     return qs.rate, False
+
+
+def _implied_fx_rate_from_balance_sheet(ccy: str, ref: date) -> float | None:
+    """Déduit le taux FX depuis le bilan officiel si le LCY/FCY est renseigné."""
+    last_date = (
+        BalanceSheetLine.objects
+        .filter(devise=ccy, date_arrete__lte=ref)
+        .exclude(montant_fcy=0)
+        .order_by("-date_arrete")
+        .values_list("date_arrete", flat=True)
+        .first()
+    )
+    if not last_date:
+        return None
+    totals = (
+        BalanceSheetLine.objects
+        .filter(devise=ccy, date_arrete=last_date)
+        .exclude(montant_fcy=0)
+        .aggregate(total_lcy=Sum("montant_lcy"), total_fcy=Sum("montant_fcy"))
+    )
+    total_lcy = float(totals.get("total_lcy") or 0)
+    total_fcy = float(totals.get("total_fcy") or 0)
+    if not total_fcy:
+        return None
+    return total_lcy / total_fcy
 
 
 def _fx_to_base(amount: float, ccy: str, ref: date) -> tuple[float, bool, float]:

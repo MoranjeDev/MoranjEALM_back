@@ -3120,6 +3120,58 @@ DECOUVERT = [
 
 # 0 ligne(s) extraite(s) de la base Symfony
 BTA = [
+    {
+        "nom_client": "ETAT DU CAMEROUN",
+        "description": "BTA 13 semaines",
+        "date_valeur": _d(-30),
+        "solde": 5_000_000_000,
+        "maturite": _d(60),
+        "per_paiement": "A L'ECHEANCE",
+        "taux_int": 5.50,
+        "devise": "XAF",
+        "type_taux": "fixe",
+        "business_unit": "Tresorerie",
+        "secteur": "Souverain",
+    },
+    {
+        "nom_client": "ETAT DU CAMEROUN",
+        "description": "BTA 26 semaines",
+        "date_valeur": _d(-90),
+        "solde": 4_000_000_000,
+        "maturite": _d(90),
+        "per_paiement": "A L'ECHEANCE",
+        "taux_int": 5.75,
+        "devise": "XAF",
+        "type_taux": "fixe",
+        "business_unit": "Tresorerie",
+        "secteur": "Souverain",
+    },
+    {
+        "nom_client": "ETAT DU TCHAD",
+        "description": "BTA 52 semaines",
+        "date_valeur": _d(-180),
+        "solde": 3_000_000_000,
+        "maturite": _d(180),
+        "per_paiement": "A L'ECHEANCE",
+        "taux_int": 6.00,
+        "devise": "XAF",
+        "type_taux": "fixe",
+        "business_unit": "Tresorerie",
+        "secteur": "Souverain",
+    },
+    {
+        "nom_client": "ETAT DU GABON",
+        "description": "BTA 26 semaines",
+        "date_valeur": _d(-30),
+        "solde": 3_000_000_000,
+        "maturite": _d(150),
+        "per_paiement": "A L'ECHEANCE",
+        "taux_int": 5.85,
+        "devise": "XAF",
+        "type_taux": "fixe",
+        "business_unit": "Tresorerie",
+        "secteur": "Souverain",
+    },
 ]
 
 # 10 ligne(s) extraite(s) de la base Symfony
@@ -3150,6 +3202,62 @@ EMPRUNT_OBL = [
 
 # 0 ligne(s) extraite(s) de la base Symfony
 TAB_AMORT = [
+    {
+        "code_agence": "00020",
+        "num_dossier": "023068",
+        "avenant": 0,
+        "devise": "XAF",
+        "num_echeance": 1,
+        "date_echeance": _d(7),
+        "amort_calcul": 220_000,
+        "montant_echeance": 230_500,
+        "statut_echeance": "A VENIR",
+        "type_taux": "fixe",
+        "business_unit": "Retail Banking",
+        "secteur": "Particuliers",
+    },
+    {
+        "code_agence": "00020",
+        "num_dossier": "023068",
+        "avenant": 0,
+        "devise": "XAF",
+        "num_echeance": 2,
+        "date_echeance": _d(30),
+        "amort_calcul": 210_000,
+        "montant_echeance": 218_900,
+        "statut_echeance": "A VENIR",
+        "type_taux": "fixe",
+        "business_unit": "Retail Banking",
+        "secteur": "Particuliers",
+    },
+    {
+        "code_agence": "00060",
+        "num_dossier": "037925",
+        "avenant": 0,
+        "devise": "XAF",
+        "num_echeance": 1,
+        "date_echeance": _d(15),
+        "amort_calcul": 320_000,
+        "montant_echeance": 333_200,
+        "statut_echeance": "A VENIR",
+        "type_taux": "fixe",
+        "business_unit": "Retail Banking",
+        "secteur": "Particuliers",
+    },
+    {
+        "code_agence": "00060",
+        "num_dossier": "037925",
+        "avenant": 0,
+        "devise": "XAF",
+        "num_echeance": 2,
+        "date_echeance": _d(45),
+        "amort_calcul": 320_000,
+        "montant_echeance": 332_100,
+        "statut_echeance": "A VENIR",
+        "type_taux": "fixe",
+        "business_unit": "Retail Banking",
+        "secteur": "Particuliers",
+    },
 ]
 
 # 45 ligne(s) extraite(s) de la base Symfony
@@ -3203,6 +3311,58 @@ PRET_COR = [
 
 # 0 ligne(s) extraite(s) de la base Symfony
 PRET_INTER_BANC = [
+    {
+        "racine": "PIB001",
+        "devise": "XAF",
+        "contrepartie": "SGC",
+        "solde": 5_000_000_000,
+        "date_mep": _d(-5),
+        "maturite": _d(7),
+        "per_paiement": "A L'ECHEANCE",
+        "taux_int": 4.50,
+        "type_taux": "variable",
+        "business_unit": "Tresorerie",
+        "secteur": "Banques",
+    },
+    {
+        "racine": "PIB002",
+        "devise": "XAF",
+        "contrepartie": "BICEC",
+        "solde": 3_000_000_000,
+        "date_mep": _d(-15),
+        "maturite": _d(30),
+        "per_paiement": "A L'ECHEANCE",
+        "taux_int": 4.75,
+        "type_taux": "variable",
+        "business_unit": "Tresorerie",
+        "secteur": "Banques",
+    },
+    {
+        "racine": "PIB003",
+        "devise": "EUR",
+        "contrepartie": "AFREXIMBANK",
+        "solde": 2_400_000_000,
+        "date_mep": _d(-20),
+        "maturite": _d(90),
+        "per_paiement": "A L'ECHEANCE",
+        "taux_int": 3.85,
+        "type_taux": "indexe",
+        "business_unit": "Tresorerie",
+        "secteur": "Banques",
+    },
+    {
+        "racine": "PIB004",
+        "devise": "USD",
+        "contrepartie": "ECOBANK",
+        "solde": 1_800_000_000,
+        "date_mep": _d(-10),
+        "maturite": _d(14),
+        "per_paiement": "A L'ECHEANCE",
+        "taux_int": 4.10,
+        "type_taux": "indexe",
+        "business_unit": "Tresorerie",
+        "secteur": "Banques",
+    },
 ]
 
 # 151 ligne(s) extraite(s) de la base Symfony
@@ -3362,6 +3522,54 @@ BEAC = [
 
 # 0 ligne(s) extraite(s) de la base Symfony
 PRET_TITRE = [
+    {
+        "contrepartie": "BEAC",
+        "type": "Pension titres souverains",
+        "montant": 1_500_000_000,
+        "date_mise": _d(-15),
+        "date_echeance": _d(15),
+        "duree": 30,
+        "taux_integer": 5.00,
+        "interet": 6_250_000,
+        "tva": 0,
+        "montant_rembourser": 1_506_250_000,
+        "devise": "XAF",
+        "type_taux": "administre",
+        "business_unit": "Tresorerie",
+        "secteur": "Banques centrales",
+    },
+    {
+        "contrepartie": "BDEAC",
+        "type": "Pret de titres collateralisé",
+        "montant": 2_200_000_000,
+        "date_mise": _d(-45),
+        "date_echeance": _d(45),
+        "duree": 90,
+        "taux_integer": 5.35,
+        "interet": 29_425_000,
+        "tva": 0,
+        "montant_rembourser": 2_229_425_000,
+        "devise": "XAF",
+        "type_taux": "fixe",
+        "business_unit": "Tresorerie",
+        "secteur": "Institutions financieres",
+    },
+    {
+        "contrepartie": "AFREXIMBANK",
+        "type": "Pension titres FCY",
+        "montant": 1_750_000_000,
+        "date_mise": _d(-30),
+        "date_echeance": _d(180),
+        "duree": 210,
+        "taux_integer": 4.80,
+        "interet": 49_000_000,
+        "tva": 0,
+        "montant_rembourser": 1_799_000_000,
+        "devise": "EUR",
+        "type_taux": "indexe",
+        "business_unit": "Tresorerie",
+        "secteur": "Banques",
+    },
 ]
 
 # 1 ligne(s) extraite(s) de la base Symfony
@@ -4499,6 +4707,127 @@ EMPRUNT_TITRE = [
         "montant_total_rembourse": 7_980_000_000,
     },
 ]
+
+
+def _normalise_demo_dimensions() -> None:
+    """Complete les colonnes analytiques modernes du jeu de demonstration.
+
+    Les lignes reprises de Symfony ne contenaient pas toujours la devise, le
+    type de taux, la business unit ou le secteur. Ces champs sont necessaires
+    pour tester MIS, multi-devise, basis risk, NII/EVE et concentration.
+    """
+    defaults = [
+        (CREDIT, "Retail Banking", "Particuliers", "XAF", "fixe"),
+        (TERME, "Corporate Banking", "Entreprises", "XAF", "variable"),
+        (DECOUVERT, "Retail Banking", "Particuliers", "XAF", "administre"),
+        (BTA, "Tresorerie", "Souverain", "XAF", "fixe"),
+        (OTA, "Tresorerie", "Souverain", "XAF", "fixe"),
+        (EMPRUNT_OBL, "Tresorerie", "Souverain", "XAF", "fixe"),
+        (TAB_AMORT, "Retail Banking", "Particuliers", "XAF", "fixe"),
+        (PRET_COR, "Tresorerie", "Banques", "XAF", "variable"),
+        (PRET_INTER_BANC, "Tresorerie", "Banques", "XAF", "variable"),
+        (BEAC, "Tresorerie", "Banque centrale", "XAF", "administre"),
+        (PRET_TITRE, "Tresorerie", "Titres", "XAF", "fixe"),
+        (BILLET, "Tresorerie", "Caisse", "XAF", "administre"),
+        (CPTE_CORR, "Tresorerie", "Correspondants", "XAF", "administre"),
+        (DEPOT_TERME, "Corporate Banking", "Entreprises", "XAF", "fixe"),
+        (BON_CAISSE, "Retail Banking", "Particuliers", "XAF", "fixe"),
+        (PENSION_LIVREE, "Tresorerie", "Banques", "XAF", "variable"),
+        (EMPRUNT_INTER, "Tresorerie", "Banques", "XAF", "variable"),
+        (EMPRUNT_INTER_BANC, "Tresorerie", "Banques", "XAF", "variable"),
+        (COMPTE_COURANT, "Retail Banking", "Particuliers", "XAF", "administre"),
+        (COMPTE_CHEQUE, "Retail Banking", "Particuliers", "XAF", "administre"),
+        (COMPTE_LIVRET, "Retail Banking", "Particuliers", "XAF", "administre"),
+        (AVANCE_BEAC, "Tresorerie", "Banque centrale", "XAF", "administre"),
+        (EMPRUNT_TITRE, "Tresorerie", "Titres", "XAF", "fixe"),
+    ]
+
+    for rows, business_unit, secteur, devise, type_taux in defaults:
+        for row in rows:
+            row.setdefault("business_unit", business_unit)
+            row.setdefault("secteur", secteur)
+            row.setdefault("devise", devise)
+            row.setdefault("type_taux", type_taux)
+            if row["devise"] == "CFA":
+                row["devise"] = "XAF"
+
+
+def _normalise_demo_window() -> None:
+    """Recentre les dates du jeu de demonstration sur la fenetre moteur.
+
+    Les donnees historiques reprises de Symfony contiennent des positions deja
+    echues avant la date d'arrete 2026-05-12. Pour un template de recette, ces
+    lignes doivent rester testables dans les outputs ALM au lieu d'apparaitre
+    comme "hors fenetre" dans le rapprochement source vs moteur.
+    """
+    future_offsets = (1, 5, 12, 25, 45, 75, 120, 240, 365, 720, 1_095, 1_680)
+    lookbacks = (15, 30, 45, 60, 90, 120, 180, 270, 365, 540, 720)
+    max_window = _d(1_825)
+
+    def future_date(index: int) -> datetime:
+        return _d(future_offsets[index % len(future_offsets)])
+
+    def start_date(index: int) -> datetime:
+        return REF - timedelta(days=lookbacks[index % len(lookbacks)])
+
+    def is_date(value: object) -> bool:
+        return isinstance(value, datetime)
+
+    def normalise_contractual(rows: list[dict], due_fields: tuple[str, ...]) -> None:
+        for index, row in enumerate(rows):
+            target_due = future_date(index)
+            for field in due_fields:
+                if field not in row:
+                    continue
+                current = row.get(field)
+                if not is_date(current) or current <= REF or current > max_window:
+                    row[field] = target_due
+
+            for field in ("date_mep", "data_mise_place", "date_valeur", "date_mise_place"):
+                if field not in row:
+                    continue
+                current = row.get(field)
+                if not is_date(current) or current >= REF or current < REF - timedelta(days=1_825):
+                    row[field] = start_date(index)
+
+            if "date_prem_echeance" in row:
+                first_due = row.get("date_prem_echeance")
+                if not is_date(first_due) or first_due >= REF or first_due < REF - timedelta(days=1_825):
+                    row["date_prem_echeance"] = REF - timedelta(days=30 + (index % 90))
+
+    def normalise_snapshot(rows: list[dict]) -> None:
+        for index, row in enumerate(rows):
+            if "date" in row:
+                row["date"] = REF - timedelta(days=index % 30)
+
+    normalise_contractual(CREDIT, ("date_deu_echeance",))
+    normalise_contractual(TERME, ("maturite",))
+    normalise_contractual(DECOUVERT, ("date_fin",))
+    normalise_contractual(BTA, ("maturite",))
+    normalise_contractual(OTA, ("maturite",))
+    normalise_contractual(EMPRUNT_OBL, ("maturite",))
+    normalise_contractual(TAB_AMORT, ("date_echeance",))
+    normalise_contractual(PRET_COR, ("date_dern_echeance",))
+    normalise_contractual(PRET_INTER_BANC, ("maturite",))
+    normalise_contractual(PRET_TITRE, ("date_echeance",))
+    normalise_contractual(DEPOT_TERME, ("maturite",))
+    normalise_contractual(BON_CAISSE, ("maturite",))
+    normalise_contractual(PENSION_LIVREE, ("echeance",))
+    normalise_contractual(EMPRUNT_INTER, ("echance",))
+    normalise_contractual(EMPRUNT_INTER_BANC, ("date_pro_echeance",))
+    normalise_contractual(AVANCE_BEAC, ("echeance",))
+    normalise_contractual(EMPRUNT_TITRE, ("echeance",))
+
+    normalise_snapshot(BEAC)
+    normalise_snapshot(BILLET)
+    normalise_snapshot(CPTE_CORR)
+    normalise_snapshot(COMPTE_COURANT)
+    normalise_snapshot(COMPTE_CHEQUE)
+    normalise_snapshot(COMPTE_LIVRET)
+
+
+_normalise_demo_window()
+_normalise_demo_dimensions()
 
 
 SAMPLE_DATA = {
